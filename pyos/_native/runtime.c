@@ -384,6 +384,7 @@ extern void pyos_entry(void); /* definida en generated.c, transpilada del Python
 
 void kernel_main(void) {
     pyos_heap_init((uint32_t)kheap_area, sizeof(kheap_area));
+    pyos_paging_init();
     pyos_kb_init();
     pyos_serial_init();
     pyos_clear();

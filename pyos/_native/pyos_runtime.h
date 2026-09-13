@@ -36,4 +36,7 @@ int pyos_streq(const char* a, const char* b);
 void pyos_beep(int freq_hz, int ms);
 int pyos_random_int(int n);
 
+/* paging.c — memoria virtual (identity map 16 MiB al boot) */
+void pyos_paging_init(void);
+
 #endif

@@ -121,7 +121,7 @@ def _build_iso(
         generated_c = work / "generated.c"
         generated_c.write_text(c_source, encoding="utf-8")
 
-        native_c_files = ("runtime.c", "heap.c", "speaker.c", "rng.c")
+        native_c_files = ("runtime.c", "heap.c", "paging.c", "speaker.c", "rng.c")
         for fname in (*native_c_files, "pyos_runtime.h", "boot.asm", "linker.ld"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 
