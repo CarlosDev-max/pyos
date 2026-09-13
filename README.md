@@ -67,6 +67,9 @@ qemu-system-i386 -cdrom hello.iso
 
 ## Comandos
 
+- `pyos new directorio [-t PLANTILLA] [--name NOMBRE]` — crea un proyecto nuevo
+  desde una plantilla. Plantillas: `basic` (hello world), `math`, `strings`,
+  `shell`, `multitask` y `graphics`.
 - `pyos build archivo.py -o salida.iso` — transpila, compila, linkea y genera
   la ISO booteable real.
 - `pyos simulate archivo.py` — corre la lógica bajo CPython normal, sin
@@ -149,9 +152,16 @@ silencio:
 - En `str`: `+` concatena (heap propio), `==`/`!=` comparan de verdad
   (`pyos_streq`) — no hay `<`/`>` entre strings todavía
 - `ord('x')` como constante de compilación; `str(x)` convierte int→str
-- Llamadas a `pyos.*`: `draw, clear, halt, reboot, log, log_char, putc,
-  readline, kbchar, line, beep, random_int, iso_read, iso_ls, iso_free,
-  spawn, sleep, ps, uptime, ticks, exit_task`
+- Llamadas a `pyos.*`: más de 90 funciones hoy. Las básicas son `draw, clear,
+  halt, reboot, log, log_char, putc, readline, kbchar, line, beep,
+  random_int, iso_read, iso_ls, iso_free, spawn, sleep, ps, uptime, ticks,
+  exit_task`; además hay matemática entera (abs, pow, fib, gcd, is_prime,
+  sqrt_int, roll, ...), strings avanzados (upper, lower, reverse, trim, pad,
+  int_to_hex, str_contains, ...), VGA (gotoxy, box, hline, vline, draw_at,
+  set_color, ...), teclado (key_available, getc, ...), procesos
+  (getpid, self_name, task_count, kill, ...) e info de máquina (cpu_vendor,
+  mem_total, version_string, ...). Lista completa en
+  `pyos/transpiler.py:_RUNTIME_CALLS`.
 - Llamadas entre funciones definidas en el mismo archivo (solo con `int`)
 - Docstrings de módulo y de función (se ignoran, no rompen la compilación)
 - Los acentos españoles comunes (á é í ó ú ñ Ñ ü Ü ¿ ¡) se mapean a CP437

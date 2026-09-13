@@ -11,7 +11,8 @@ from pathlib import Path
 
 from .build import BuildError, build, check_toolchain
 
-_TEMPLATE_DIR = Path(__file__).parent / "templates" / "basic"
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TEMPLATES = sorted(d.name for d in _TEMPLATES_DIR.iterdir() if d.is_dir())
 
 
 def _slugify(name: str) -> str:
@@ -24,12 +25,20 @@ def _cmd_new(args: argparse.Namespace) -> int:
         print(f"error: ya existe: {dest}", file=sys.stderr)
         return 1
 
+    tpl_dir = _TEMPLATES_DIR / args.template
+    if not tpl_dir.is_dir():
+        print(f"error: plantilla desconocida '{args.template}'. "
+              f"Disponibles: {', '.join(_TEMPLATES)}", file=sys.stderr)
+        return 1
+
     name = args.name or dest.name
     slug = _slugify(name)
 
     dest.mkdir(parents=True)
     try:
-        for tpl in (_TEMPLATE_DIR / "kernel.py", _TEMPLATE_DIR / "README.md"):
+        for tpl in sorted(tpl_dir.iterdir()):
+            if not tpl.is_file():
+                continue
             text = tpl.read_text(encoding="utf-8")
             text = text.replace("__MYOS_NAME__", name).replace("__MYOS_SLUG__", slug)
             (dest / tpl.name).write_text(text, encoding="utf-8")
@@ -38,7 +47,7 @@ def _cmd_new(args: argparse.Namespace) -> int:
         print(f"error: no se pudo crear el proyecto: {e}", file=sys.stderr)
         return 1
 
-    print(f"Creado {dest}/")
+    print(f"Creado {dest}/  (plantilla: {args.template})")
     print(f"  - {dest / 'kernel.py'}   (tu OS, editá este archivo)")
     print(f"  - {dest / 'README.md'}")
     print("\nCorré la lógica en simulación:")
@@ -94,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     p_new = sub.add_parser("new", help="Crea un proyecto de pyos a partir de una plantilla")
     p_new.add_argument("directory", help="Directorio del nuevo proyecto")
     p_new.add_argument("--name", default=None, help="Nombre del OS (por defecto, el del directorio)")
+    p_new.add_argument("--template", "-t", default="basic", choices=_TEMPLATES,
+                       help=f"Plantilla a usar: {', '.join(_TEMPLATES)} (default: basic)")
     p_new.set_defaults(func=_cmd_new)
 
     p_build = sub.add_parser("build", help="Compila un kernel.py a una ISO booteable (o /init de Linux)")
