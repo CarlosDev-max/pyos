@@ -78,20 +78,26 @@ qemu-system-i386 -cdrom hello.iso
 
 ```
 pyos/
-  __init__.py     → API pública (pyos.entry, pyos.draw, pyos.clear, pyos.log, pyos.halt)
-                    También corren bajo CPython normal, para el modo simulación.
+  __init__.py     → API pública (pyos.entry, pyos.draw, pyos.clear, pyos.log,
+                    pyos.halt, pyos.readline, pyos.putc, pyos.kbchar,
+                    pyos.log_char). También corren bajo CPython normal, para
+                    el modo simulación.
   transpiler.py   → AST de Python → C (subconjunto restringido, ver abajo)
   build.py        → orquesta nasm/gcc/ld/grub-mkrescue sobre el C generado
   cli.py          → `pyos build|simulate|doctor`
   _native/
     boot.asm      → header multiboot1 + entrypoint real (modo protegido 32-bit)
+                    + stubs de ISR/IRQ (enmascan estado, llaman al C, iret)
     linker.ld     → coloca el kernel en 1MB, layout de secciones ELF
-    runtime.c     → el "libc" del kernel: VGA texto (0xB8000), puerto serie
-                    (COM1, para logs/debug), halt de CPU. Estas son las
+    runtime.c     → el "libc" del kernel: IDT x86 de 32 bits, remapeo del
+                    PIC 8259, driver de teclado PS/2 (IRQ1, scancode set 1,
+                    shift/caps lock), buffer de línea estático sin malloc,
+                    VGA texto (0xB8000) y puerto serie (COM1). Estas son las
                     únicas funciones que existen en el sistema.
     pyos_runtime.h
 examples/
-  hello_kernel/   → ejemplo real, probado con QEMU
+  hello_kernel/    → ejemplo real, probado con QEMU
+  keyboard_kernel/ → ejemplo real de entrada por teclado PS/2, probado con QEMU
 ```
 
 Pipeline de `pyos build`:
@@ -116,7 +122,8 @@ silencio:
   heap ni concatenación dinámica de strings)
 - `if` / `elif` / `else`, `while`, `for x in range(...)`
 - Operadores: `+ - * // %`, comparaciones, `and` / `or`, `not`
-- Llamadas a `pyos.draw / pyos.clear / pyos.halt / pyos.log`
+- Llamadas a `pyos.draw / pyos.clear / pyos.halt / pyos.log / pyos.log_char /
+  pyos.putc / pyos.readline / pyos.kbchar`
 - Llamadas entre funciones definidas en el mismo archivo (solo con `int`)
 - Docstrings de módulo y de función (se ignoran, no rompen la compilación)
 
@@ -127,7 +134,9 @@ de strings en runtime.
 ## Roadmap
 
 - [ ] CLI: plantillas (`pyos new mi_os`) para arrancar un proyecto
-- [ ] Driver de teclado (puerto 0x60) + shell interactiva real
+- [x] Driver de teclado (IRQ1, puerto 0x60, scancode set 1) + entrada de
+  línea (`pyos.readline`, buffer estático sin malloc)
+- [ ] Shell interactiva real sobre el teclado
 - [ ] Heap básico (`malloc`/`free` mínimo) para permitir strings dinámicos
 - [ ] Multiboot2 completo (hoy usamos Multiboot1 por simplicidad/compatibilidad)
 - [ ] Backend alternativo: `pyos build --target=linux-init` para generar un

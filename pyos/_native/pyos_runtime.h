@@ -9,6 +9,10 @@ void pyos_clear(void);
 void pyos_putc(char c);
 void pyos_draw(const char* s);
 void pyos_log(const char* s);
+void pyos_log_char(char c);
 void pyos_halt(void);
+void pyos_kb_init(void);
+int pyos_readline(void);
+int pyos_kb_char(int i);
 
 #endif

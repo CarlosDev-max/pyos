@@ -155,6 +155,24 @@ def test_unknown_pyos_call_rejected():
         transpile(src)
 
 
+def test_keyboard_calls():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    n = pyos.readline()\n"
+        "    pyos.putc(pyos.kbchar(0))\n"
+        "    for i in range(n):\n"
+        "        pyos.log_char(pyos.kbchar(i))\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "int n = pyos_readline();" in c
+    assert "pyos_putc(pyos_kb_char(0));" in c
+    assert "pyos_log_char(pyos_kb_char(i));" in c
+    assert 'for (int i = 0; i < n; i += 1)' in c
+
+
 def test_top_level_statement_rejected():
     src = (
         "import pyos\n"

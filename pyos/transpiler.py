@@ -16,7 +16,8 @@ Subconjunto soportado (ver README.md para la lista completa y ejemplos):
     dinámica todavía)
   - if / elif / else, while, for x in range(...)
   - Operadores: + - * // % en enteros; comparaciones; and / or
-  - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.log
+  - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.log / pyos.putc /
+    pyos.log_char / pyos.readline / pyos.kbchar
   - Llamadas a otras funciones definidas en el mismo archivo
   - Una función marcada con @pyos.entry (se convierte en pyos_entry, la que
     el runtime en C invoca desde kernel_main)
@@ -45,6 +46,10 @@ _RUNTIME_CALLS = {
     "clear": "pyos_clear",
     "halt": "pyos_halt",
     "log": "pyos_log",
+    "log_char": "pyos_log_char",
+    "putc": "pyos_putc",
+    "readline": "pyos_readline",
+    "kbchar": "pyos_kb_char",
 }
 
 

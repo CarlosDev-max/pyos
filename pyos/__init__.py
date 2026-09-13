@@ -27,7 +27,12 @@ import sys
 
 __version__ = "0.1.0"
 
-__all__ = ["entry", "draw", "clear", "halt", "log"]
+__all__ = [
+    "entry", "draw", "clear", "halt", "log", "log_char",
+    "putc", "readline", "kbchar",
+]
+
+_last_readline = ""
 
 
 def entry(func):
@@ -68,6 +73,40 @@ def clear() -> None:
 def log(text: str) -> None:
     """Log de debug por puerto serie. En simulación: imprime a stderr."""
     sys.stderr.write(str(text) + ("" if str(text).endswith("\n") else "\n"))
+
+
+def log_char(c: int) -> None:
+    """Escribe un solo carácter (código ASCII) al log por puerto serie.
+    En simulación: imprime el carácter a stderr."""
+    sys.stderr.write(chr(int(c)) if isinstance(c, int) else str(c))
+
+
+def putc(c: int) -> None:
+    """Escribe un solo carácter (código ASCII) en pantalla.
+    En simulación: lo imprime a stdout."""
+    sys.stdout.write(chr(int(c)) if isinstance(c, int) else str(c))
+
+
+def readline() -> int:
+    """Lee una línea completa desde el teclado, con echo en la pantalla.
+    Devuelve la cantidad de caracteres leídos (sin el Enter).
+
+    En el kernel real: bloquea en un loop de hlt hasta recibir Enter por el
+    IRQ1 del teclado PS/2, mostrando en VGA lo que se escribe y
+    procesando Backspace. En simulación: lee de stdin de la terminal."""
+    global _last_readline
+    line = sys.stdin.readline()
+    _last_readline = line.rstrip("\n").rstrip("\r")
+    return len(_last_readline)
+
+
+def kbchar(i: int) -> int:
+    """Devuelve el código ASCII del carácter i (0-based) de la última línea
+    leída con readline. -1 si el índice está fuera de rango."""
+    global _last_readline
+    if i < 0 or i >= len(_last_readline):
+        return -1
+    return ord(_last_readline[i])
 
 
 def halt() -> None:
