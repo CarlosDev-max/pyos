@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         "transpila a C, compila con un bootloader multiboot2 y genera una "
         "ISO booteable de verdad."
     ))
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p_new = sub.add_parser("new", help="Crea un proyecto de pyos a partir de una plantilla")
     p_new.add_argument("directory", help="Directorio del nuevo proyecto")
@@ -125,7 +125,12 @@ def main(argv: list[str] | None = None) -> int:
     p_sim.add_argument("source", help="Archivo .py a simular")
     p_sim.set_defaults(func=_cmd_simulate)
 
+    p_help = sub.add_parser("help", help="Muestra esta ayuda")
+    p_help.set_defaults(func=lambda _args: parser.print_help() or 0)
+
     args = parser.parse_args(argv)
+    if args.command is None:
+        return parser.print_help() or 0
     return args.func(args)
 
 

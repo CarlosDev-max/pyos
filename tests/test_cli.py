@@ -79,6 +79,32 @@ def test_all_bundled_templates_transpile():
         assert "void pyos_entry(void)" in c
 
 
+def test_pyos_without_command_prints_help(capsys):
+    rc = cli.main([])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "usage" in out
+    assert "build" in out
+    assert "simulate" in out
+
+
+def test_pyos_help_print_help(capsys):
+    rc = cli.main(["help"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "usage" in out
+    assert "new" in out
+
+
+def test_pyos_help_same_as_no_command(capsys):
+    rc_plain = cli.main([])
+    out_plain = capsys.readouterr().out
+    rc_help = cli.main(["help"])
+    out_help = capsys.readouterr().out
+    assert rc_plain == rc_help == 0
+    assert out_plain == out_help
+
+
 def test_build_rejects_bad_target(tmp_path):
     from pyos.build import BuildError, build
 
