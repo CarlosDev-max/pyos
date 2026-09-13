@@ -133,7 +133,8 @@ def _build_iso(
 
         native_c_files = ("runtime.c", "heap.c", "paging.c", "speaker.c",
                       "rng.c", "ata.c", "myfs.c", "iso9660.c",
-                      "timer.c", "proc.c")
+                      "timer.c", "proc.c", "math.c", "str2.c", "vga2.c",
+                      "misc.c")
         for fname in (*native_c_files, "pyos_runtime.h", "boot.asm", "linker.ld"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 
@@ -265,7 +266,7 @@ def _build_linux_init(
         for fname in ("pyos_runtime.h",):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
         shutil.copy(_NATIVE_LINUX_DIR / "runtime_linux.c", work / "runtime_linux.c")
-        for fname in ("heap.c", "rng.c"):
+        for fname in ("heap.c", "rng.c", "math.c", "str2.c"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 
         log("[2/4] Compilando runtime_linux.c + generated.c (estático, i386, sin libc) ...")
@@ -279,6 +280,7 @@ def _build_linux_init(
         _run(
             ["gcc", *cflags, "-nostdlib",
              "generated.c", "runtime_linux.c", "heap.c", "rng.c",
+             "math.c", "str2.c",
              "-o", str(output), "-lgcc"],
             work, log,
         )

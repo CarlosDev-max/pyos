@@ -263,3 +263,64 @@ void pyos_ps(void) {
         pyos_draw("\n");
     }
 }
+
+/* ---------- info de procesos (Tanda D) ---------------------------------- */
+
+int pyos_getpid(void) { return current; }
+
+int pyos_task_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_PROCS; i++)
+        if (procs[i].used) n++;
+    return n;
+}
+
+int pyos_task_alive(int pid) {
+    if (pid < 0 || pid >= MAX_PROCS || !procs[pid].used) return 0;
+    return procs[pid].state != PROC_EXITED;
+}
+
+/* copia al heap el nombre del proceso; "" si no existe */
+const char* pyos_task_name(int pid) {
+    if (pid < 0 || pid >= MAX_PROCS || !procs[pid].used) return "";
+    int n = 0;
+    while (procs[pid].name[n] && n < 15) n++;
+    char* out = (char*)pyos_alloc((uint32_t)n + 1u);
+    if (!out) return "";
+    for (int i = 0; i < n; i++) out[i] = procs[pid].name[i];
+    out[n] = 0;
+    return out;
+}
+
+const char* pyos_task_state_str(int pid) {
+    if (pid < 0 || pid >= MAX_PROCS || !procs[pid].used) return "?";
+    switch (procs[pid].state) {
+        case PROC_RUNNING:  return "corriendo";
+        case PROC_READY:    return "listo";
+        case PROC_SLEEPING: return "durmiendo";
+        case PROC_EXITED:   return "terminado";
+        default:            return "?";
+    }
+}
+
+/* copia al heap el nombre del proceso actual; "" si no hay proceso */
+const char* pyos_self_name(void) {
+    if (current < 0) return "";
+    return pyos_task_name(current);
+}
+
+/* marca como terminado al proceso pid; si pid == current, se comporta igual
+ * que exit_task (desaloja al proceso actual). Devuelve 1 si existía, 0 si no. */
+int pyos_kill(int pid) {
+    if (pid < 0 || pid >= MAX_PROCS || !procs[pid].used) return 0;
+    procs[pid].state = PROC_EXITED;
+    if (pid == current) {
+        pyos_log("proc: kill del proceso actual\n");
+        int next = next_ready_from(pid);
+        if (next < 0) { current = -1; return 1; }
+        current = next;
+        procs[next].state = PROC_RUNNING;
+        scheduler_next_esp = (uint32_t)(uintptr_t)procs[next].esp;
+    }
+    return 1;
+}

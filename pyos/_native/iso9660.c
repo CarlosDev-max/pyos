@@ -178,3 +178,27 @@ const char* pyos_iso_read(const char* name) {
 
 /* libera el resultado de pyos_iso_read */
 void pyos_iso_free(const char* p) { pyos_free((void*)(uintptr_t)p); }
+
+/* cantidad de archivos en la raíz del volumen (0 si no hay ISO o la raíz
+ * está vacía); no imprime nada, a diferencia de iso_ls */
+int pyos_iso_count(void) {
+    if (!cd_ready()) return 0;
+    const uint8_t* pvd = cd_sector(16);
+    if (pvd[0] != 1) return 0;
+    iso_extent_t root;
+    iso_extent_of(pvd + 156, &root);
+    if (!iso_dir_ok(&root)) return 0;
+
+    uint32_t pos = 0;
+    int n = 0;
+    while (pos < root.len) {
+        const uint8_t* rec = iso_dir_buf(root.lba, 0, pos);
+        if (!rec) break;
+        uint8_t len = rec[0];
+        if (len == 0) { pos = ((pos / CD_SECTOR) + 1) * CD_SECTOR; continue; }
+        pos += len;
+        if (rec[25] & 0x02) continue; /* directorios no cuentan */
+        n++;
+    }
+    return n;
+}

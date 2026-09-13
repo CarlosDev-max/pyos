@@ -76,6 +76,8 @@ extern void pyos_draw(const char* s);
 extern void pyos_putdec(uint32_t n);
 extern int ata_read_lba(int bus, int drive, uint32_t lba, void* buf, int sectors);
 extern int ata_write_lba(int bus, int drive, uint32_t lba, const void* buf, int sectors);
+extern void* pyos_alloc(uint32_t size);
+extern void pyos_free(void* p);
 
 static uint8_t fs_disk[FS_BLOCK];
 static uint8_t fs_bitmap_bitmap[FS_BLOCK];
@@ -397,4 +399,73 @@ void pyos_fs_status(void) {
     pyos_draw("FS: MYOSFS v1, ");
     pyos_putdec(fs_blocks_total * FS_BLOCK / 1024);
     pyos_draw(" KiB totales\n");
+}
+
+/* 1 si el filesystem MYOSFS está montado (pyos.fs_mounted) */
+int pyos_fs_mounted(void) { return fs_mounted ? 1 : 0; }
+
+/* apéndice: agrega «text» al final del archivo; devuelve los bytes escritos,
+ * -1 si el fd es inválido. Lee el contenido previo al heap (debe entrar: el
+ * archivo final no puede superar la memoria disponible) y lo reescribe junto
+ * con el texto nuevo, con la misma lógica de corrida contigua que fwrite. */
+int pyos_fopen_append(int fd, const char* text) {
+    if (!fs_mounted || fd < 0 || fd >= FS_MAX_OPEN || fs_open[fd].inode < 0)
+        return -1;
+    if (!text) text = "";
+
+    myfs_inode_t ino;
+    fs_inode_load(&ino, fs_open[fd].inode);
+    uint32_t old = ino.size;
+    uint32_t add = 0;
+    while (text[add]) add++;
+    if (add == 0) return 0;
+
+    uint32_t total = old + add;
+    char* buf = (char*)pyos_alloc(total);
+    if (!buf) { myfs_log("myfs: sin heap para append\n"); return -1; }
+
+    /* leer el contenido previo, bloque por bloque */
+    uint8_t blk[FS_BLOCK];
+    for (uint32_t k = 0; k < old; k++) {
+        uint32_t blkno = ino.start + (k / FS_BLOCK);
+        uint32_t off = k % FS_BLOCK;
+        if (off == 0) {
+            if (blk_read(blkno, blk) != 0) { pyos_free(buf); return -1; }
+        }
+        buf[k] = (char)blk[off];
+    }
+    for (uint32_t k = 0; k < add; k++) buf[old + k] = text[k];
+
+    if (ino.nblocks) fs_free_run(ino.start, ino.nblocks);
+    uint32_t need = (total + FS_BLOCK - 1u) / FS_BLOCK;
+    if (need == 0) need = 1;
+    int start = fs_alloc_run(need);
+    if (start < 0) {
+        pyos_free(buf);
+        myfs_log("myfs: sin corrida libre para append\n");
+        ino.start = 0; ino.nblocks = 0; ino.size = 0;
+        fs_inode_store(&ino, fs_open[fd].inode);
+        return -1;
+    }
+
+    for (uint32_t b = 0; b < need; b++) fs_bm_set((uint32_t)start + b);
+    fs_bm_flush();
+
+    uint8_t zbuf[FS_BLOCK] = {0};
+    for (uint32_t b = 0; b < need; b++) {
+        __builtin_memset(zbuf, 0, FS_BLOCK);
+        for (uint32_t o = 0; o < FS_BLOCK; o++) {
+            uint32_t i = b * FS_BLOCK + o;
+            zbuf[o] = i < total ? (uint8_t)buf[i] : 0;
+        }
+        if (blk_write((uint32_t)start + b, zbuf) != 0) { pyos_free(buf); return -1; }
+    }
+
+    ino.start = (uint32_t)start;
+    ino.nblocks = need;
+    ino.size = total;
+    fs_inode_store(&ino, fs_open[fd].inode);
+    fs_open[fd].pos = total;
+    pyos_free(buf);
+    return (int)add;
 }

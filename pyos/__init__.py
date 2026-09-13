@@ -37,6 +37,31 @@ __all__ = [
     "fsinit", "fopen", "fwrite", "fread", "fclose", "fexists", "fdel",
     "fls", "fsize", "iso_status", "iso_ls", "iso_read", "iso_free",
     "spawn", "exit_task", "sleep", "ps", "uptime", "ticks",
+    # Tanda A — matemática
+    "abs", "sign", "is_even", "is_odd", "pow", "factorial", "fib", "gcd",
+    "lcm", "sqrt_int", "is_prime", "next_prime", "digit_count", "sum_digits",
+    "reverse_int", "is_palindrome_int", "min", "max", "clamp",
+    "is_power_of_two", "next_power_of_two", "log2_floor", "rand_range",
+    "rand_bool", "roll",
+    # Tanda B — strings avanzado
+    "str_len", "str_to_int", "str_char_at", "str_contains", "str_index",
+    "str_count", "starts_with", "ends_with", "upper", "lower", "reverse",
+    "trim", "repeat", "left", "right", "pad_left", "pad_right",
+    "replace_char", "int_to_hex", "int_to_bin",
+    # Tanda C — display/VGA
+    "gotoxy", "get_x", "get_y", "set_color", "get_color", "draw_char",
+    "draw_at", "clr_row", "fill_screen", "hline", "vline", "box",
+    "fill_rect", "screen_w", "screen_h", "cursor_show", "invert_row",
+    # Tanda D — teclado, tiempo y procesos
+    "key_available", "getc_nowait", "getc", "clear_kb", "shift_pressed",
+    "caps_active", "millis", "seconds", "getpid", "task_count",
+    "task_alive", "task_name", "task_state_str", "self_name", "kill",
+    # Tanda E — info de la máquina
+    "paging_enabled", "mem_total", "mem_heap_blocks", "cpu_vendor",
+    "cpu_has_fpu", "kernel_base", "iso_count", "version_string",
+    # Tanda F — misceláneos
+    "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
+    "fs_mounted", "fopen_append",
 ]
 
 _last_readline = ""
@@ -218,13 +243,15 @@ def reboot() -> None:
 
 _fs_files = {}                     # nombre(str) -> {data, fd}
 _fs_next_fd = 1
+_fs_mounted = False
 
 
 def fsinit() -> int:
     """Monta el disco (MYOSFS) o lo formatea si está vacío. En el kernel real
     lee/escribe el disco ATA; en simulación solo habilita un FS en memoria."""
-    global _fs_files
+    global _fs_files, _fs_mounted
     _fs_files = {}
+    _fs_mounted = True
     return 1
 
 
@@ -341,8 +368,9 @@ def _iso_preload(files: dict[str, str]) -> None:
 # contrato de API que el kernel real (spawn/sleep/exit_task/ps/uptime/ticks).
 # ---------------------------------------------------------------------------
 
-_sim_procs = {}          # nombre -> {"thread", "done"}
+_sim_procs = {}          # nombre -> {"thread", "done", "pid"}
 _sim_next_pid = 2        # el pid 1 es el proceso inicial
+_sim_self_pid = 1        # pid del proceso actual (hilo en simulación)
 _monotonic_start = time.monotonic()
 
 
@@ -356,6 +384,8 @@ def spawn(name: str, fn) -> int:
     _sim_next_pid += 1
 
     def _body():
+        global _sim_self_pid
+        _sim_self_pid = pid
         try:
             fn()
         except SystemExit:
@@ -364,7 +394,7 @@ def spawn(name: str, fn) -> int:
             _sim_procs[n]["done"] = True
 
     _sim_procs[n] = {"thread": threading.Thread(target=_body, daemon=True),
-                     "done": False}
+                     "done": False, "pid": pid}
     _sim_procs[n]["thread"].start()
     return pid
 
@@ -403,3 +433,645 @@ def uptime() -> int:
 def ticks() -> int:
     """Contador de ticks del PIT (simulado con el reloj real; mismo significado)."""
     return uptime()
+
+
+# ---------------------------------------------------------------------------
+# Tanda A — matemática entera. Misma semántica que math.c: devuelven -1 (o 0)
+# cuando el resultado no existe / no entra en un int de 32 bits.
+# ---------------------------------------------------------------------------
+
+def abs(n: int) -> int:
+    """Valor absoluto; INT_MIN devuelve 2147483647 (no hay espejo)."""
+    n = int(n)
+    if n == -2147483648:
+        return 2147483647
+    return n if n >= 0 else -n
+
+
+def sign(n: int) -> int:
+    n = int(n)
+    return 1 if n > 0 else (-1 if n < 0 else 0)
+
+
+def is_even(n: int) -> int:
+    return 1 if (int(n) & 1) == 0 else 0
+
+
+def is_odd(n: int) -> int:
+    return int(n) & 1
+
+
+def pow(a: int, b: int) -> int:
+    """a^b con b>=0 (0^0=1); si el resultado no entra en int, -1."""
+    a, b = int(a), int(b)
+    if b < 0:
+        return -1
+    r = 1
+    for _ in range(b):
+        r *= a
+        if r > 2147483647 or r < -2147483648:
+            return -1
+    return r
+
+
+def factorial(n: int) -> int:
+    """n! con n<=12; fuera de rango, -1."""
+    n = int(n)
+    if n < 0 or n > 12:
+        return -1
+    r = 1
+    for i in range(2, n + 1):
+        r *= i
+    return r
+
+
+def fib(n: int) -> int:
+    """F(n) con n<=40; fuera de rango, -1."""
+    n = int(n)
+    if n < 0 or n > 40:
+        return -1
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+
+def gcd(a: int, b: int) -> int:
+    """Máximo común divisor (en valor absoluto; nunca divide por 0)."""
+    a, b = abs(int(a)), abs(int(b))
+    while b:
+        a, b = b, a % b
+    return a
+
+
+def lcm(a: int, b: int) -> int:
+    """Mínimo común múltiplo; 0 si a==0 o b==0; -1 si no entra en int."""
+    a, b = int(a), int(b)
+    if a == 0 or b == 0:
+        return 0
+    m = (a // gcd(a, b)) * b
+    m = abs(m)
+    return m if m <= 2147483647 else -1
+
+
+def sqrt_int(n: int) -> int:
+    """Parte entera de la raíz cuadrada; n<=0 -> 0."""
+    n = int(n)
+    if n <= 0:
+        return 0
+    lo, hi = 0, min(n, 46341)
+    while lo < hi:
+        mid = lo + (hi - lo + 1) // 2
+        if mid <= n // mid:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def is_prime(n: int) -> int:
+    n = int(n)
+    if n < 2:
+        return 0
+    if n % 2 == 0:
+        return 1 if n == 2 else 0
+    i = 3
+    while i <= n // i:
+        if n % i == 0:
+            return 0
+        i += 2
+    return 1
+
+
+def next_prime(n: int) -> int:
+    n = max(int(n), 2)
+    if n == 2:
+        return 2
+    if n % 2 == 0:
+        n += 1
+    while True:
+        if is_prime(n):
+            return n
+        if n > 2147483647 - 2:
+            return -1
+        n += 2
+
+
+def digit_count(n: int) -> int:
+    v = abs(int(n))
+    if v == 0:
+        return 1
+    return len(str(v))
+
+
+def sum_digits(n: int) -> int:
+    v = abs(int(n))
+    s = 0
+    while v:
+        s += v % 10
+        v //= 10
+    return s
+
+
+def reverse_int(n: int) -> int:
+    """Número con los dígitos invertidos (conserva el signo); 0 si no entra."""
+    n = int(n)
+    neg = n < 0
+    v = abs(n)
+    r = 0
+    while v:
+        r = r * 10 + (v % 10)
+        v //= 10
+    if r > 2147483648:
+        return 0
+    return -r if neg else r
+
+
+def is_palindrome_int(n: int) -> int:
+    return 1 if reverse_int(int(n)) == int(n) else 0
+
+
+def min(a: int, b: int) -> int:
+    return a if a < b else b
+
+
+def max(a: int, b: int) -> int:
+    return a if a > b else b
+
+
+def clamp(n: int, lo: int, hi: int) -> int:
+    n, lo, hi = int(n), int(lo), int(hi)
+    if lo > hi:
+        lo, hi = hi, lo
+    if n < lo:
+        return lo
+    if n > hi:
+        return hi
+    return n
+
+
+def is_power_of_two(n: int) -> int:
+    n = int(n)
+    return 1 if n > 0 and (n & (n - 1)) == 0 else 0
+
+
+def next_power_of_two(n: int) -> int:
+    n = int(n)
+    if n <= 0:
+        return 1
+    p = 1
+    while p < n:
+        p <<= 1
+    if p > 2147483647:
+        return -1
+    return p
+
+
+def log2_floor(n: int) -> int:
+    n = int(n)
+    if n <= 1:
+        return 0
+    v, r = n, 0
+    while v > 1:
+        v >>= 1
+        r += 1
+    return r
+
+
+def rand_range(lo: int, hi: int) -> int:
+    lo, hi = int(lo), int(hi)
+    if hi < lo:
+        lo, hi = hi, lo
+    span = hi - lo + 1
+    if span <= 0 or span > 2147483647:
+        return lo
+    return lo + random.randrange(span)
+
+
+def rand_bool() -> int:
+    return 1 if random.randrange(2) else 0
+
+
+def roll(sides: int) -> int:
+    sides = int(sides)
+    if sides <= 1:
+        return 1
+    return 1 + random.randrange(sides)
+
+
+# ---------------------------------------------------------------------------
+# Tanda B — strings avanzado. Los strings del simulador son str normales; el
+# resultado '' equivale a la cadena vacía del kernel, y no hay falla de alloc.
+# ---------------------------------------------------------------------------
+
+def str_len(s: str) -> int:
+    return len(str(s))
+
+
+def str_to_int(s: str) -> int:
+    """Parsea decimal (soporta '-' inicial); vacío -> 0; se detiene en el
+    primer carácter no dígito. Saturar al rango de int, como el kernel."""
+    s = str(s)
+    if not s:
+        return 0
+    i, neg = 0, False
+    if s[0] == '-':
+        neg, i = True, 1
+    acc = 0
+    while i < len(s) and s[i].isdigit():
+        acc = min(acc * 10 + int(s[i]), 2147483647)
+        i += 1
+    return -acc if neg else acc
+
+
+def str_char_at(s: str, i: int) -> int:
+    s, i = str(s), int(i)
+    if i < 0 or i >= len(s):
+        return -1
+    return ord(s[i])
+
+
+def str_contains(s: str, sub: str) -> int:
+    return 1 if str(sub) in str(s) else 0
+
+
+def str_index(s: str, sub: str) -> int:
+    s, sub = str(s), str(sub)
+    return s.find(sub)  # -1 si no está
+
+
+def str_count(s: str, sub: str) -> int:
+    s, sub = str(s), str(sub)
+    if not sub:
+        return 0
+    n, pos = 0, 0
+    while True:
+        pos = s.find(sub, pos)
+        if pos < 0:
+            return n
+        n += 1
+        pos += len(sub)
+
+
+def starts_with(s: str, pref: str) -> int:
+    return 1 if str(s).startswith(str(pref)) else 0
+
+
+def ends_with(s: str, suf: str) -> int:
+    return 1 if str(s).endswith(str(suf)) else 0
+
+
+def upper(s: str) -> str:
+    return str(s).upper()
+
+
+def lower(s: str) -> str:
+    return str(s).lower()
+
+
+def reverse(s: str) -> str:
+    return str(s)[::-1]
+
+
+def trim(s: str) -> str:
+    return str(s).strip(" ")
+
+
+def repeat(s: str, n: int) -> str:
+    n = int(n)
+    if n <= 0:
+        return ""
+    return str(s) * n
+
+
+def left(s: str, n: int) -> str:
+    n = int(n)
+    if n <= 0:
+        return ""
+    return str(s)[:n]
+
+
+def right(s: str, n: int) -> str:
+    n = int(n)
+    if n <= 0:
+        return ""
+    return str(s)[-n:]
+
+
+def pad_left(s: str, n: int, ch: int) -> str:
+    s, n = str(s), int(n)
+    pad = max(n - len(s), 0)
+    return chr(int(ch) & 0xFF) * pad + s
+
+
+def pad_right(s: str, n: int, ch: int) -> str:
+    s, n = str(s), int(n)
+    pad = max(n - len(s), 0)
+    return s + chr(int(ch) & 0xFF) * pad
+
+
+def replace_char(s: str, old: int, new: int) -> str:
+    return str(s).replace(chr(int(old) & 0xFF), chr(int(new) & 0xFF))
+
+
+def int_to_hex(n: int) -> str:
+    """"0x" + hex minúsculas del patrón de 32 bits ("0x0" para 0)."""
+    v = int(n) & 0xFFFFFFFF
+    return "0x" + format(v, "x")
+
+
+def int_to_bin(n: int) -> str:
+    """"0b" + binario sin ceros a la izquierda ("0b0" para 0)."""
+    v = int(n) & 0xFFFFFFFF
+    return "0b" + format(v, "b")
+
+
+# ---------------------------------------------------------------------------
+# Tanda C — display/VGA. En simulación no hay VGA real: las funciones de
+# dibujo devuelven 1 (o 0 si coord inválida) sin tocar una pantalla.
+# ---------------------------------------------------------------------------
+
+_sim_cursor_x = 0
+_sim_cursor_y = 0
+_sim_color = 0x0F
+
+def gotoxy(x: int, y: int) -> int:
+    global _sim_cursor_x, _sim_cursor_y
+    _sim_cursor_x = max(0, min(int(x), 79))
+    _sim_cursor_y = max(0, min(int(y), 24))
+    return 1
+
+
+def get_x() -> int:
+    return _sim_cursor_x
+
+
+def get_y() -> int:
+    return _sim_cursor_y
+
+
+def set_color(fg: int, bg: int) -> int:
+    global _sim_color
+    _sim_color = (int(fg) & 0x0F) | ((int(bg) & 0x07) << 4)
+    return _sim_color
+
+
+def get_color() -> int:
+    return _sim_color
+
+
+def draw_char(x: int, y: int, ch: int) -> int:
+    if int(x) < 0 or int(x) >= 80 or int(y) < 0 or int(y) >= 25:
+        return 0
+    return 1
+
+
+def draw_at(x: int, y: int, s: str) -> int:
+    if int(x) < 0 or int(x) >= 80 or int(y) < 0 or int(y) >= 25:
+        return 0
+    return min(len(str(s)), 80 - int(x))
+
+
+def clr_row(y: int) -> int:
+    return 1 if 0 <= int(y) < 25 else 0
+
+
+def fill_screen(ch: int) -> int:
+    return 1
+
+
+def hline(y: int, x1: int, x2: int, ch: int) -> int:
+    return 1 if 0 <= int(y) < 25 else 0
+
+
+def vline(x: int, y1: int, y2: int, ch: int) -> int:
+    return 1 if 0 <= int(x) < 80 else 0
+
+
+def box(x1: int, y1: int, x2: int, y2: int, ch: int) -> int:
+    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+    if x1 < 0 or y1 < 0 or x2 >= 80 or y2 >= 25 or x2 < x1 or y2 < y1:
+        return 0
+    return 1
+
+
+def fill_rect(x1: int, y1: int, x2: int, y2: int, ch: int) -> int:
+    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+    if x1 < 0 or y1 < 0 or x2 >= 80 or y2 >= 25 or x2 < x1 or y2 < y1:
+        return 0
+    return 1
+
+
+def screen_w() -> int:
+    return 80
+
+
+def screen_h() -> int:
+    return 25
+
+
+def cursor_show(on: int) -> int:
+    return 1
+
+
+def invert_row(y: int) -> int:
+    return 1 if 0 <= int(y) < 25 else 0
+
+
+# ---------------------------------------------------------------------------
+# Tanda D — teclado no bloqueante, tiempo y procesos.
+# ---------------------------------------------------------------------------
+
+def key_available() -> int:
+    """En el kernel: hay tecla pendiente sin leer. En simulación la entrada
+    del terminal es línea a línea, así que no hay búfer: 0."""
+    return 0
+
+
+def getc_nowait() -> int:
+    """Caracter pendiente o -1. En simulación siempre -1 (ver key_available)."""
+    return -1
+
+
+def getc() -> int:
+    """Caracter (sin echo). En simulación lee un byte de stdin; EOF termina."""
+    ch = sys.stdin.read(1)
+    if not ch:
+        raise SystemExit(0)
+    return ord(ch)
+
+
+def clear_kb() -> int:
+    return 1
+
+
+def shift_pressed() -> int:
+    return 0
+
+
+def caps_active() -> int:
+    return 0
+
+
+def millis() -> int:
+    """Milisegundos desde el boot (ticks*10 en el kernel)."""
+    return int((time.monotonic() - _monotonic_start) * 1000)
+
+
+def seconds() -> int:
+    """Segundos desde el boot."""
+    return int(time.monotonic() - _monotonic_start)
+
+
+def getpid() -> int:
+    """PID del proceso actual. En simulación: pid 1 = main; los spawn desde 2."""
+    return _sim_self_pid
+
+
+def task_count() -> int:
+    """Procesos existentes (kernel cuenta main + idle + spawn; la simulación
+    no tiene idle, así que cuenta main + spawn)."""
+    return 1 + len(_sim_procs)
+
+
+def task_alive(pid: int) -> int:
+    pid = int(pid)
+    if pid == 1:
+        return 1
+    for p in _sim_procs.values():
+        if p["pid"] == pid:
+            return 0 if p["done"] else 1
+    return 0
+
+
+def task_name(pid: int) -> str:
+    pid = int(pid)
+    if pid == 1:
+        return "main"
+    for n, p in _sim_procs.items():
+        if p["pid"] == pid:
+            return n
+    return ""
+
+
+def task_state_str(pid: int) -> str:
+    pid = int(pid)
+    if pid == 1:
+        return "corriendo"
+    for p in _sim_procs.values():
+        if p["pid"] == pid:
+            return "terminado" if p["done"] else "corriendo"
+    return "?"
+
+
+def self_name() -> str:
+    if _sim_self_pid == 1:
+        return "main"
+    for n, p in _sim_procs.items():
+        if p["pid"] == _sim_self_pid:
+            return n
+    return ""
+
+
+def kill(pid: int) -> int:
+    """Marca el proceso como terminado; 1 si existía, 0 si no. Si es el pid
+    del proceso actual, termina este hilo (como exit_task)."""
+    global _sim_self_pid
+    pid = int(pid)
+    if pid == 1:
+        return 0
+    for p in _sim_procs.values():
+        if p["pid"] == pid:
+            p["done"] = True
+            if pid == _sim_self_pid:
+                raise SystemExit(0)
+            return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Tanda E — info de la máquina (aproximada en simulación).
+# ---------------------------------------------------------------------------
+
+def paging_enabled() -> int:
+    return 1
+
+
+def mem_total() -> int:
+    """RAM total en MiB reportada por multiboot; 32 si no hay dato."""
+    return 32
+
+
+def mem_heap_blocks() -> int:
+    """Bloques libres en la free-list del heap. En simulación no hay
+    free-list real: se aproxima con 0 (nada liberado aparte del bloque grande)."""
+    return 0
+
+
+def cpu_vendor() -> str:
+    """Vendor de CPUID. En simulación depende de la plataforma host; por
+    defecto "N/A" (como el kernel sin CPUID)."""
+    return "N/A"
+
+
+def cpu_has_fpu() -> int:
+    return 1
+
+
+def kernel_base() -> int:
+    return 0x100000
+
+
+def iso_count() -> int:
+    """Archivos de la raíz del ISO detectado (0 si no hay ISO)."""
+    return len(_iso_files) if _iso_files else 0
+
+
+def version_string() -> str:
+    return "MYOS v0.7-big"
+
+
+# ---------------------------------------------------------------------------
+# Tanda F — misceláneos (chars y rand).
+# ---------------------------------------------------------------------------
+
+def rand_str(n: int) -> str:
+    """n caracteres aleatorios imprimibles (32..126); n<=0 -> ''."""
+    n = int(n)
+    if n <= 0:
+        return ""
+    return "".join(chr(random.randrange(32, 127)) for _ in range(n))
+
+
+def toupper_char(c: int) -> int:
+    c = int(c)
+    return c + ord('A') - ord('a') if ord('a') <= c <= ord('z') else c
+
+
+def tolower_char(c: int) -> int:
+    c = int(c)
+    return c + ord('a') - ord('A') if ord('A') <= c <= ord('Z') else c
+
+
+def is_digit(c: int) -> int:
+    return 1 if ord('0') <= int(c) <= ord('9') else 0
+
+
+def is_alpha(c: int) -> int:
+    c = int(c)
+    return 1 if (ord('a') <= c <= ord('z') or ord('A') <= c <= ord('Z')) else 0
+
+
+def fs_mounted() -> int:
+    return 1 if _fs_mounted else 0
+
+
+def fopen_append(fd: int, s: str) -> int:
+    """Escribe `s` al final del archivo del fd; bytes escritos o -1 si el fd
+    es inválido. Equivale a fappend en el kernel."""
+    fd, s = int(fd), str(s)
+    for h in _fs_files.values():
+        if h["fd"] == fd:
+            h["data"] += s
+            return len(s)
+    return -1

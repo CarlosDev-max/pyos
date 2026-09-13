@@ -14,8 +14,8 @@
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
 #define VGA_MEM    ((uint16_t*)0xB8000)
-#define VGA_COLOR  0x0F /* blanco sobre negro */
 
+static uint8_t vga_color = 0x0F; /* atributo actual (blanco sobre negro) */
 static size_t vga_row = 0;
 static size_t vga_col = 0;
 
@@ -30,7 +30,7 @@ static void vga_scroll(void) {
         }
     }
     for (size_t x = 0; x < VGA_WIDTH; x++) {
-        VGA_MEM[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = vga_entry(' ', VGA_COLOR);
+        VGA_MEM[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = vga_entry(' ', vga_color);
     }
     vga_row = VGA_HEIGHT - 1;
 }
@@ -44,13 +44,13 @@ static void vga_backspace(void) {
         }
     }
     if (vga_col > 0) vga_col--;
-    VGA_MEM[vga_row * VGA_WIDTH + vga_col] = vga_entry(' ', VGA_COLOR);
+    VGA_MEM[vga_row * VGA_WIDTH + vga_col] = vga_entry(' ', vga_color);
 }
 
 void pyos_clear(void) {
     for (size_t y = 0; y < VGA_HEIGHT; y++)
         for (size_t x = 0; x < VGA_WIDTH; x++)
-            VGA_MEM[y * VGA_WIDTH + x] = vga_entry(' ', VGA_COLOR);
+            VGA_MEM[y * VGA_WIDTH + x] = vga_entry(' ', vga_color);
     vga_row = 0;
     vga_col = 0;
 }
@@ -60,7 +60,7 @@ void pyos_putc(char c) {
         vga_col = 0;
         vga_row++;
     } else {
-        VGA_MEM[vga_row * VGA_WIDTH + vga_col] = vga_entry(c, VGA_COLOR);
+        VGA_MEM[vga_row * VGA_WIDTH + vga_col] = vga_entry(c, vga_color);
         if (++vga_col == VGA_WIDTH) {
             vga_col = 0;
             vga_row++;
@@ -81,6 +81,30 @@ void pyos_putdec(uint32_t n) {
         n /= 10;
     } while (n);
     while (i < 12) pyos_putc(buf[i++]);
+}
+
+/* ---------- Accesores del framebuffer para vga2.c (Tanda C) ---------- */
+void pyos_vga_get_cursor(int* x, int* y) {
+    if (x) *x = (int)vga_col;
+    if (y) *y = (int)vga_row;
+}
+
+void pyos_vga_set_cursor(int x, int y) {
+    vga_row = (size_t)(y < 0 ? 0 : (y > (int)(VGA_HEIGHT - 1) ? (int)(VGA_HEIGHT - 1) : y));
+    vga_col = (size_t)(x < 0 ? 0 : (x > (int)(VGA_WIDTH - 1) ? (int)(VGA_WIDTH - 1) : x));
+}
+
+int pyos_vga_get_color(void) { return (int)vga_color; }
+void pyos_vga_set_color(int color) { vga_color = (uint8_t)(color & 0xFF); }
+
+void pyos_vga_cell_put(int x, int y, uint16_t cell) {
+    if (x < 0 || x >= (int)VGA_WIDTH || y < 0 || y >= (int)VGA_HEIGHT) return;
+    VGA_MEM[(size_t)y * VGA_WIDTH + (size_t)x] = cell;
+}
+
+uint16_t pyos_vga_cell_get(int x, int y) {
+    if (x < 0 || x >= (int)VGA_WIDTH || y < 0 || y >= (int)VGA_HEIGHT) return 0;
+    return VGA_MEM[(size_t)y * VGA_WIDTH + (size_t)x];
 }
 
 /* ---------- Heap: área que heap.c recibe vía pyos_heap_init() ---------- */
@@ -338,6 +362,28 @@ const char* pyos_substr(int start, int len) {
     return substr_buf;
 }
 
+/* ---------- Teclado no bloqueante (Tanda D) ---------- */
+int pyos_key_available(void) {
+    return (int)(kb_ring_tail != kb_ring_head);
+}
+
+int pyos_getc_nowait(void) {
+    char c = kb_ring_pop();
+    return c ? (int)(unsigned char)c : -1;
+}
+
+int pyos_getc(void) {
+    return (int)(unsigned char)kb_wait_char();
+}
+
+int pyos_clear_kb(void) {
+    kb_ring_tail = kb_ring_head; /* descartar todo lo pendiente */
+    return 1;
+}
+
+int pyos_shift_pressed(void) { return kb_shift ? 1 : 0; }
+int pyos_caps_active(void)    { return kb_caps ? 1 : 0; }
+
 /* ---------- Control de CPU ---------- */
 void pyos_halt(void) {
     __asm__ volatile ("cli");
@@ -426,6 +472,10 @@ extern void pyos_scheduler_yield(uint32_t frame_esp);
 const uint8_t* pyos_cd_bytes = 0;
 uint32_t pyos_cd_len = 0;
 
+/* RAM total en MiB reportada por multiboot (kernel_main la guarda acá para
+ * pyos.mem_total(); 32 si no hubo info multiboot válida). */
+uint32_t pyos_mem_total_mb = 32;
+
 /* busca el primer módulo multiboot que tenga un PVD ISO9660 en su sector 16
  * y lo deja en pyos_cd_bytes/pyos_cd_len. Estructura de la info multiboot v1:
  *   +0  flags | +20 mods_count | +24 mods_addr
@@ -452,7 +502,18 @@ static void mb_find_iso(uint32_t mb_info) {
 }
 
 void kernel_main(uint32_t magic, uint32_t mb_info) {
-    if (magic == 0x2BADB002) mb_find_iso(mb_info);
+    uint32_t mem_total_mb = 32; /* default si no hay info multiboot */
+    if (magic == 0x2BADB002) {
+        mb_find_iso(mb_info);
+        if (mb_info && (*(volatile uint32_t*)mb_info & 0x1)) { /* flags bit 0 */
+            uint32_t low_kb = *(volatile uint32_t*)(mb_info + 4);   /* mem_lower */
+            uint32_t up_kb  = *(volatile uint32_t*)(mb_info + 8);   /* mem_upper */
+            mem_total_mb = (low_kb + up_kb + 1023u) / 1024u;
+            if (mem_total_mb == 0) mem_total_mb = 32;
+        }
+    }
+    pyos_mem_total_mb = mem_total_mb;
+
     pyos_heap_init((uint32_t)kheap_area, sizeof(kheap_area));
     pyos_paging_init();
     pyos_kb_init();

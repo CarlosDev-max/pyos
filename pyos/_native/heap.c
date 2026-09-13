@@ -119,6 +119,14 @@ uint32_t pyos_heap_total(void) { return heap_total_bytes; }
 uint32_t pyos_heap_used(void)  { return heap_used_bytes; }
 uint32_t pyos_heap_free(void)  { return heap_total_bytes - heap_used_bytes; }
 
+/* bloques actualmente libres en la free-list (para pyos.mem_heap_blocks) */
+uint32_t pyos_mem_heap_blocks(void) {
+    uint32_t n = 0;
+    for (blk_t* b = heap_head; b; b = b->next)
+        if (b->free) n++;
+    return n;
+}
+
 /* ---------- strings dinámicos sobre el heap --------------------------- */
 
 static uint32_t hstrlen(const char* s) {
