@@ -20,7 +20,6 @@
 #include "pyos_runtime.h"
 
 extern void pyos_log(const char* s);
-extern void pyos_log_char(char c);
 extern void pyos_draw(const char* s);
 extern void pyos_putdec(uint32_t n);
 extern void* pyos_alloc(uint32_t size);
@@ -64,11 +63,6 @@ static void finish_current(void) {
 }
 
 static void proc_entry(void) {
-    pyos_log("proc: entry pid=");
-    pyos_putdec((uint32_t)current);
-    pyos_log(" func=");
-    pyos_log(procs[current].name);
-    pyos_log("\n");
     procs[current].func();
     finish_current();
     for (;;) {

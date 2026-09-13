@@ -6,4 +6,10 @@ dist/
 *.iso
 *.elf
 *.o
+*.bin
+*.img
+*.log
+work/
+isoroot/
+data_root/
 .venv/
