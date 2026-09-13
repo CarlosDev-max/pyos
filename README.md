@@ -98,6 +98,8 @@ pyos/
 examples/
   hello_kernel/    → ejemplo real, probado con QEMU
   keyboard_kernel/ → ejemplo real de entrada por teclado PS/2, probado con QEMU
+  shell_kernel/    → una shell interactiva completa (help, clear, echo, info,
+                     halt, reboot) corriendo sobre el teclado PS/2
 ```
 
 Pipeline de `pyos build`:
@@ -122,8 +124,9 @@ silencio:
   heap ni concatenación dinámica de strings)
 - `if` / `elif` / `else`, `while`, `for x in range(...)`
 - Operadores: `+ - * // %`, comparaciones, `and` / `or`, `not`
-- Llamadas a `pyos.draw / pyos.clear / pyos.halt / pyos.log / pyos.log_char /
-  pyos.putc / pyos.readline / pyos.kbchar`
+- Llamadas a `pyos.draw / pyos.clear / pyos.halt / pyos.reboot / pyos.log /
+  pyos.log_char / pyos.putc / pyos.readline / pyos.kbchar`, y a `ord('x')`
+  como constante de tiempo de compilación (para comparar el ASCII de teclas)
 - Llamadas entre funciones definidas en el mismo archivo (solo con `int`)
 - Docstrings de módulo y de función (se ignoran, no rompen la compilación)
 
@@ -136,7 +139,7 @@ de strings en runtime.
 - [ ] CLI: plantillas (`pyos new mi_os`) para arrancar un proyecto
 - [x] Driver de teclado (IRQ1, puerto 0x60, scancode set 1) + entrada de
   línea (`pyos.readline`, buffer estático sin malloc)
-- [ ] Shell interactiva real sobre el teclado
+- [x] Shell interactiva real sobre el teclado
 - [ ] Heap básico (`malloc`/`free` mínimo) para permitir strings dinámicos
 - [ ] Multiboot2 completo (hoy usamos Multiboot1 por simplicidad/compatibilidad)
 - [ ] Backend alternativo: `pyos build --target=linux-init` para generar un

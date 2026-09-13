@@ -25,10 +25,10 @@ el compilador (pyos.transpiler) puede convertir a C.
 import atexit
 import sys
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 __all__ = [
-    "entry", "draw", "clear", "halt", "log", "log_char",
+    "entry", "draw", "clear", "halt", "reboot", "log", "log_char",
     "putc", "readline", "kbchar",
 ]
 
@@ -46,8 +46,17 @@ def entry(func):
     mismo archivo sirve para las dos cosas sin código extra."""
     func._pyos_entry = True
     if func.__globals__.get("__name__") == "__main__":
-        atexit.register(func)
+        atexit.register(lambda f=func: _run_entry(f))
     return func
+
+
+def _run_entry(func):
+    # Swallows SystemExit raised por halt()/reboot()/EOF de readline, así la
+    # simulación termina limpia (sin "Exception ignored in atexit callback").
+    try:
+        func()
+    except SystemExit:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +102,12 @@ def readline() -> int:
 
     En el kernel real: bloquea en un loop de hlt hasta recibir Enter por el
     IRQ1 del teclado PS/2, mostrando en VGA lo que se escribe y
-    procesando Backspace. En simulación: lee de stdin de la terminal."""
+    procesando Backspace. En simulación: lee de stdin de la terminal (si la
+    entrada llega a EOF —Ctrl-D o pipe terminado— termina el programa)."""
     global _last_readline
     line = sys.stdin.readline()
+    if not line:
+        raise SystemExit(0)
     _last_readline = line.rstrip("\n").rstrip("\r")
     return len(_last_readline)
 
@@ -110,6 +122,12 @@ def kbchar(i: int) -> int:
 
 
 def halt() -> None:
-    """Detiene la CPU para siempre. En simulación: no-op (el proceso Python
-    termina solo, normalmente, cuando main() retorna)."""
-    pass
+    """Detiene la CPU para siempre. En simulación: termina el programa de
+    forma limpia (lo más parecido a apagar la máquina en una terminal)."""
+    raise SystemExit(0)
+
+
+def reboot() -> None:
+    """Reinicia la máquina (pulso de reset por el controller 8042).
+    En simulación: termina el programa de forma limpia."""
+    raise SystemExit(0)

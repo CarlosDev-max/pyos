@@ -306,6 +306,16 @@ void pyos_halt(void) {
     for (;;) __asm__ volatile ("hlt");
 }
 
+void pyos_reboot(void) {
+    /* Reset por el controller del teclado (8042): pulso la línea RESET de la
+     * CPU con el comando 0xFE. En QEMU reinicia de inmediato; en hardware
+     * real depende de la placa. Si la BIOS no responde, nos quedamos HLT. */
+    __asm__ volatile ("cli");
+    while (inb(0x64) & 0x02);   /* esperar a que el buffer de entrada se vacíe */
+    outb(0x64, 0xFE);           /* pulso de reset del CPU */
+    for (;;) __asm__ volatile ("hlt");
+}
+
 /* ---------- Handlers en C, llamados desde los stubs de boot.asm ---------- */
 typedef struct {
     uint32_t gs, fs, es, ds;

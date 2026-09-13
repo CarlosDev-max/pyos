@@ -183,3 +183,63 @@ def test_top_level_statement_rejected():
     )
     with pytest.raises(TranspileError, match="a nivel de módulo"):
         transpile(src)
+
+
+def test_ord_folds_to_constant():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    c = pyos.kbchar(0)\n"
+        "    if c == ord('h'):\n"
+        "        pyos.draw(\"h\")\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "== 104" in c
+    assert "ord(" not in c
+
+
+def test_ord_rejects_non_char_literal():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.kbchar(ord('abc'))\n"
+    )
+    with pytest.raises(TranspileError, match="un carácter"):
+        transpile(src)
+
+
+def test_reboot_and_break_continue():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    i = 0\n"
+        "    while True:\n"
+        "        i = i + 1\n"
+        "        if i == 3:\n"
+        "            continue\n"
+        "        if i == 5:\n"
+        "            break\n"
+        "    pyos.reboot()\n"
+    )
+    c = transpile(src)
+    assert "while (1)" in c
+    assert "continue;" in c
+    assert "break;" in c
+    assert "pyos_reboot();" in c
+
+
+def test_shell_kernel_transpiles():
+    from pathlib import Path
+    shell = Path(__file__).parent.parent / "examples" / "shell_kernel" / "kernel.py"
+    c = Transpiler().transpile(
+        shell.read_text(encoding="utf-8"), filename="shell_kernel/kernel.py"
+    )
+    assert "void pyos_entry(void)" in c
+    assert "pyos_readline();" in c
+    assert "pyos_reboot();" in c
+    assert "pyos_halt();" in c
+    assert "== 32" in c or "!= 32" in c  # el espacio del separador de comandos

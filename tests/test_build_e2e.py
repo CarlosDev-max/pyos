@@ -14,6 +14,7 @@ from pyos.build import build, check_toolchain
 EXAMPLES = [
     Path(__file__).parent.parent / "examples" / "hello_kernel" / "kernel.py",
     Path(__file__).parent.parent / "examples" / "keyboard_kernel" / "kernel.py",
+    Path(__file__).parent.parent / "examples" / "shell_kernel" / "kernel.py",
 ]
 
 pytestmark = pytest.mark.skipif(

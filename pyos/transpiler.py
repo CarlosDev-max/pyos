@@ -16,8 +16,10 @@ Subconjunto soportado (ver README.md para la lista completa y ejemplos):
     dinámica todavía)
   - if / elif / else, while, for x in range(...)
   - Operadores: + - * // % en enteros; comparaciones; and / or
-  - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.log / pyos.putc /
-    pyos.log_char / pyos.readline / pyos.kbchar
+  - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.reboot / pyos.log /
+    pyos.putc / pyos.log_char / pyos.readline / pyos.kbchar
+  - ord('x') como constante de tiempo de compilación (útil para comparar el
+    código ASCII de teclas contra literales)
   - Llamadas a otras funciones definidas en el mismo archivo
   - Una función marcada con @pyos.entry (se convierte en pyos_entry, la que
     el runtime en C invoca desde kernel_main)
@@ -50,6 +52,7 @@ _RUNTIME_CALLS = {
     "putc": "pyos_putc",
     "readline": "pyos_readline",
     "kbchar": "pyos_kb_char",
+    "reboot": "pyos_reboot",
 }
 
 
@@ -266,6 +269,12 @@ class Transpiler:
         if isinstance(node, ast.Pass):
             return [f"{pad};"]
 
+        if isinstance(node, ast.Break):
+            return [f"{pad}break;"]
+
+        if isinstance(node, ast.Continue):
+            return [f"{pad}continue;"]
+
         raise TranspileError(
             f"instrucción no soportada en el kernel: {type(node).__name__}", node
         )
@@ -377,6 +386,18 @@ class Transpiler:
         raise TranspileError(f"expresión no soportada: {type(node).__name__}", node)
 
     def _emit_call(self, node: ast.Call, scope: _FuncScope):
+        if isinstance(node.func, ast.Name) and node.func.id == "ord":
+            if len(node.args) != 1:
+                raise TranspileError("ord() recibe exactamente un carácter", node)
+            arg = node.args[0]
+            if not (isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str) and len(arg.value) == 1):
+                raise TranspileError(
+                    "ord() solo se puede usar con un literal de un carácter "
+                    "('a', ' ', '\\n', ...)", node
+                )
+            return (str(ord(arg.value)), "int")
+
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id == "pyos":
             fname = node.func.attr
