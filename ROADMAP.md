@@ -25,27 +25,36 @@ multitarea sin poder reservar y liberar memoria por proceso).
 - Bonus: `pyos.beep()` (PC speaker real vía PIT) y `pyos.random_int()` (LCG con semilla de RDTSC)
 - CP437: los acentos (á, é, í, ó, ú, ñ) ya se ven bien en la VGA
 
-## 🔜 Fase 3 — Memoria real
-- Reemplazar el bump allocator por un allocator con `free()` de verdad
-  (free-list o buddy allocator simple)
-- Paginación (page tables de 32 bits, activar el bit PG de CR0)
-- Protección de memoria básica: separar código/datos del kernel de lo que
-  el usuario transpile, detectar accesos inválidos (page fault ya se loguea
-  desde la Fase 1, falta *hacer algo* con eso más que frenar)
+## ✅ Fase 3 — Memoria real (completa)
+- Heap propio con **free-list real**: `pyos_alloc`/`pyos_free` con
+  coalescing de bloques adyacentes y estadísticas (ya no es bump-only)
+- Paginación identity map de 16 MiB (page tables de 32 bits, bit PG de CR0)
+- `pyos_int_to_str` y las concatenaciones de strings pasan por el heap nuevo;
+  `kheap_area` de 1 MiB en `.bss`
+- Excepciones de la CPU ya se loguean con eip/cs/err desde la Fase 1; con
+  paginación activa, un acceso inválido se ve como #PF con su CR2
 
-## 🔜 Fase 4 — Filesystem y persistencia
-- Leer el propio CD-ROM booteado (ISO9660, solo lectura) para que `pyos`
-  pueda cargar archivos empaquetados en la ISO
-- Un filesystem simple de escritura sobre un disco virtual (FAT16 mínimo, o
-  uno propio) para persistencia real entre reinicios
-- API en Python: `pyos.fopen/fread/fwrite` o similar
+## ✅ Fase 4 — Filesystem y persistencia (completa)
+- ISO9660, solo lectura, del **CD booteado**: GRUB inyecta `/boot/data.iso`
+  como módulo multiboot y el kernel lo parsea desde memoria (determinista en
+  QEMU; se descartó ATAPI por frágil)
+- `pyos.iso_read('archivo')`, `pyos.iso_ls()` y `pyos.iso_free()`
+- Driver ATA PIO (28-bit LBA, primario+secundario) en `ata.c` y filesystem
+  MYOSFS v1 de escritura sobre disco IDE en `myfs.c` — quedan listos en el
+  kernel aunque la demo de arranque usa el CD por módulo
 
-## 🔜 Fase 5 — Multitarea
-- Habilitar el timer (PIT, IRQ0 — hoy está enmascarado a propósito)
-- Scheduler cooperativo primero (yield explícito), preemptivo después
-- Contextos de CPU por tarea (guardar/restaurar registros vía el struct
-  `int_regs_t` que ya existe en `runtime.c`)
-- API en Python: `pyos.spawn(func)` para lanzar una función como "proceso"
+## ✅ Fase 5 — Multitarea (completa)
+- Timer PIT canal 0 (IRQ0) a 100 Hz — ya no está enmascarado
+- Scheduler **preemptivo** round-robin: quantum de 1 tick, procesos
+  suspendidos/retomados por el mismo frame de interrupción (`int_regs_t`)
+- `pyos.spawn(nombre, funcion)`, `pyos.sleep(ms)`, `pyos.ps()`,
+  `pyos.exit_task()`, `pyos.uptime()`, `pyos.ticks()`
+- `sleep()` es un bloqueo real: lanza `int $0x40` (yield por software), el
+  switch ocurre en `irq_common` y el proceso retoma exactamente donde durmió
+- Proceso `idle` permanente (`hlt`) que corre cuando no hay nada listo;
+  demo `examples/tasks_kernel/` con contador + parpadeo + uptime real
+- GDT plana propia (cs=0x08/ds=0x10) instalada en `boot.asm` — el iret de la
+  multitarea necesita selectores predecibles
 
 ## 🔜 Fase 6 — Red (opcional/ambicioso)
 - Driver de una tarjeta de red simple (rtl8139 o virtio-net, bien soportadas

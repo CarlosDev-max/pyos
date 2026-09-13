@@ -78,6 +78,29 @@ _RUNTIME_CALLS = {
     "heap_total": ("pyos_heap_total", "int"),
     "heap_used": ("pyos_heap_used", "int"),
     "heap_free": ("pyos_heap_free", "int"),
+    # Fase 4 — filesystem (myfs.c) + strings
+    "substr": ("pyos_substr", "str"),     # pyos.substr(start, len)
+    "fsinit": ("pyos_fs_init", "int"),    # monta (o formatea) el disco
+    "fopen": ("pyos_fopen", "int"),       # pyos.fopen(nombre, 0|1)
+    "fwrite": ("pyos_fwrite", "int"),     # pyos.fwrite(fd, "texto")
+    "fread": ("pyos_fread", "str"),       # pyos.fread(fd, max) -> str
+    "fclose": ("pyos_fclose", "int"),
+    "fexists": ("pyos_fexists", "int"),
+    "fdel": ("pyos_fdel", "int"),
+    "fls": ("pyos_fls", "int"),
+    "fsize": ("pyos_fsize", "int"),
+    # Fase 4 — lector del CD booteado (iso9660.c)
+    "iso_status": ("pyos_iso_status", "int"),
+    "iso_ls": ("pyos_iso_ls", "int"),
+    "iso_read": ("pyos_iso_read", "str"),   # pyos.iso_read("archivo") -> str
+    "iso_free": ("pyos_iso_free", "int"),   # libera el resultado de iso_read
+    # Fase 5 — multitarea preemptiva (timer.c + proc.c)
+    "spawn": ("pyos_spawn", "int"),         # pyos.spawn("nombre", funcion)
+    "exit_task": ("pyos_exit_task", "int"), # terminó el proceso actual
+    "sleep": ("pyos_sleep", "int"),         # pyos.sleep(ms) suspende el proceso
+    "ps": ("pyos_ps", "int"),               # lista procesos
+    "uptime": ("pyos_uptime", "int"),       # tiempo encendido en ticks
+    "ticks": ("pyos_ticks", "int"),         # total de ticks del PIT
 }
 
 
@@ -453,6 +476,22 @@ class Transpiler:
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id == "pyos":
             fname = node.func.attr
+            if fname == "spawn":
+                # pyos.spawn("nombre", mi_funcion): el 2º argumento es el
+                # nombre de una función definida en este archivo (en C, con su
+                # mismo nombre); se pasa como puntero a función.
+                if len(node.args) != 2:
+                    raise TranspileError(
+                        "pyos.spawn(nombre, funcion) recibe exactamente 2 argumentos", node)
+                name_c, t = self._emit_expr(node.args[0], scope)
+                if t != "str":
+                    raise TranspileError("el nombre del proceso debe ser un string", node)
+                func_arg = node.args[1]
+                if not (isinstance(func_arg, ast.Name)
+                        and func_arg.id in self._known_funcs):
+                    raise TranspileError(
+                        "pyos.spawn espera una función definida en este archivo", node)
+                return (f"pyos_spawn({name_c}, (void (*)(void)){func_arg.id})", "int")
             if fname not in _RUNTIME_CALLS:
                 raise TranspileError(f"pyos.{fname} no existe en el runtime", node)
             c_name, ret_type = _RUNTIME_CALLS[fname]

@@ -79,8 +79,11 @@ qemu-system-i386 -cdrom hello.iso
 ```
 pyos/
   __init__.py     → API pública (pyos.entry, pyos.draw, pyos.clear, pyos.log,
-                    pyos.halt, pyos.readline, pyos.putc, pyos.kbchar,
-                    pyos.log_char, pyos.line, pyos.beep, pyos.random_int).
+                    pyos.halt, pyos.reboot, pyos.readline, pyos.putc,
+                    pyos.kbchar, pyos.log_char, pyos.line, pyos.beep,
+                    pyos.random_int, pyos.iso_read/iso_ls/iso_free,
+                    pyos.spawn, pyos.sleep, pyos.ps, pyos.uptime, pyos.ticks,
+                    pyos.exit_task).
                     También corren bajo CPython normal, para el modo
                     simulación.
   transpiler.py   → AST de Python → C (subconjunto restringido, ver abajo)
@@ -88,14 +91,22 @@ pyos/
   cli.py          → `pyos build|simulate|doctor`
   _native/
     boot.asm      → header multiboot1 + entrypoint real (modo protegido 32-bit)
-                    + stubs de ISR/IRQ (enmascan estado, llaman al C, iret)
+                    + GDT plana propia + stubs de ISR/IRQ (enmascan estado,
+                    llaman al C, iret) + yield por software (int $0x40)
     linker.ld     → coloca el kernel en 1MB, layout de secciones ELF
     runtime.c     → el "libc" del kernel: IDT x86 de 32 bits, remapeo del
                     PIC 8259, driver de teclado PS/2 (IRQ1, scancode set 1,
                     shift/caps lock), buffer de línea estático sin malloc,
-                    VGA texto (0xB8000) y puerto serie (COM1).
-    heap.c        → heap propio (bump allocator, 256 KiB): concatenación de
-                    strings, conversión int→str, comparación de strings
+                    VGA texto (0xB8000) y puerto serie (COM1), dispatch de
+                    IRQ + handler de excepciones
+    heap.c        → heap propio con free-list real y coalescing de bloques
+    paging.c      → paginación identity map de 16 MiB
+    timer.c       → PIT canal 0 (IRQ0) a 100 Hz — el tick de la multitarea
+    proc.c        → scheduler round-robin preemptivo: spawn/sleep/ps/exit,
+                    proceso idle, contextos por frame de interrupción
+    ata.c         → driver ATA PIO (28-bit LBA) para discos IDE
+    myfs.c        → filesystem MYOSFS v1 de escritura sobre ATA
+    iso9660.c     → lector ISO9660 (solo lectura) del CD/módulo multiboot
     speaker.c     → pyos.beep() real por el PC speaker (PIT canal 2)
     rng.c         → pyos.random_int() — LCG sembrado con RDTSC
     pyos_runtime.h
@@ -105,17 +116,22 @@ examples/
   shell_kernel/    → shell interactiva completa (help, clear, echo, info,
                      beep, random, halt, reboot) con comandos comparados
                      como strings de verdad (pyos.line() + ==)
+  tasks_kernel/    → multitarea real (Fase 5): contador + parpadeo + uptime,
+                     probado con QEMU
 ```
 
 Pipeline de `pyos build`:
 
 1. `transpiler.py` parsea tu `.py` con `ast` y genera `generated.c`
 2. `nasm` ensambla `boot.asm` → `boot.o`
-3. `gcc -m32 -ffreestanding` compila `runtime.c`, `heap.c`, `speaker.c`,
+3. `gcc -m32 -ffreestanding` compila `runtime.c`, `heap.c`, `paging.c`,
+   `timer.c`, `proc.c`, `ata.c`, `myfs.c`, `iso9660.c`, `speaker.c`,
    `rng.c` y `generated.c` → objetos
 4. `gcc -T linker.ld -nostdlib` linkea todo → `kernel.elf` (multiboot válido,
    verificado con `grub-file --is-x86-multiboot`)
-5. Se arma un árbol `isoroot/boot/grub/grub.cfg` apuntando al kernel
+5. Se arma un árbol `isoroot/boot/grub/grub.cfg` apuntando al kernel; si el
+   build recibe archivos extra, se empaquetan en `data.iso` y GRUB los carga
+   como módulo multiboot
 6. `grub-mkrescue` genera la ISO final
 
 ## Subconjunto de Python soportado
@@ -134,7 +150,8 @@ silencio:
   (`pyos_streq`) — no hay `<`/`>` entre strings todavía
 - `ord('x')` como constante de compilación; `str(x)` convierte int→str
 - Llamadas a `pyos.*`: `draw, clear, halt, reboot, log, log_char, putc,
-  readline, kbchar, line, beep, random_int`
+  readline, kbchar, line, beep, random_int, iso_read, iso_ls, iso_free,
+  spawn, sleep, ps, uptime, ticks, exit_task`
 - Llamadas entre funciones definidas en el mismo archivo (solo con `int`)
 - Docstrings de módulo y de función (se ignoran, no rompen la compilación)
 - Los acentos españoles comunes (á é í ó ú ñ Ñ ü Ü ¿ ¡) se mapean a CP437
@@ -142,7 +159,7 @@ silencio:
 
 No soportado (todavía): imports que no sean `pyos`, f-strings, slicing de
 strings, listas/dicts, excepciones, generadores, clases, recursión con tipos
-mixtos, `free()` de memoria (el heap crece hasta 256 KiB y no se libera).
+mixtos.
 
 ## Roadmap
 

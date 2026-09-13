@@ -365,14 +365,31 @@ typedef struct {
 void isr_handler(int_regs_t* r) {
     pyos_log("pyos: EXCEPCION #");
     serial_hex(r->int_no);
+    pyos_log(" err=");
+    serial_hex(r->err_code);
+    pyos_log(" eip=");
+    serial_hex(r->eip);
+    pyos_log(" cs=");
+    serial_hex(r->cs);
     pyos_log("\n");
     pyos_halt();
 }
 
+/* ESP al que boot.asm debe conmutar al volver de un handler de interrupción.
+ * El scheduler (proc.c) lo deja con el frame del proceso que sigue, y
+ * irq_common en boot.asm lo consume exactamente una vez por interrupción. */
+volatile uint32_t scheduler_next_esp = 0;
+
+extern void pyos_timer_irq(uint32_t frame_esp);
+
 void irq_handler(int_regs_t* r) {
-    if (r->int_no >= 40) outb(0xA0, 0x20); /* EOI al slave */
-    outb(0x20, 0x20);                      /* EOI al master */
+    if (r->int_no >= 32 && r->int_no < 48) { /* solo IRQs de hardware */
+        if (r->int_no >= 40) outb(0xA0, 0x20); /* EOI al slave */
+        outb(0x20, 0x20);                      /* EOI al master */
+    }
     if (r->int_no == KB_IRQ) kb_irq();
+    if (r->int_no == 32) pyos_timer_irq((uint32_t)(uintptr_t)r);
+    if (r->int_no == 0x40) pyos_scheduler_yield((uint32_t)(uintptr_t)r);
 }
 
 /* ---------- Inicialización de interrupciones y teclado ---------- */
@@ -384,6 +401,8 @@ void pyos_kb_init(void) {
     uint16_t cs = (uint16_t)idt_current_cs();
     for (int i = 0; i < 32; i++) idt_set_gate(i, isr_stub_table[i], cs);
     for (int i = 0; i < 16; i++) idt_set_gate(32 + i, irq_stub_table[i], cs);
+    extern uint32_t irq_40_stub;
+    idt_set_gate(0x40, (uint32_t)&irq_40_stub, cs);
 
     pic_remap();
 
@@ -392,11 +411,15 @@ void pyos_kb_init(void) {
     outb(0x64, 0xAE); /* habilitar la interfaz del teclado */
 
     __asm__ volatile ("lidt %0" : : "m"(idtp));
-    __asm__ volatile ("sti");
 }
 
 /* ---------- Entry point real, llamado desde boot.asm ---------- */
 extern void pyos_entry(void); /* definida en generated.c, transpilada del Python del usuario */
+
+/* Fase 5: multitarea (proc.c) y PIT (timer.c) */
+extern void pyos_scheduler_init(void);
+extern void pyos_timer_init(void);
+extern void pyos_scheduler_yield(uint32_t frame_esp);
 
 /* el volumen ISO9660 que GRUB carga como módulo multiboot (data.iso): lo usa
  * iso9660.c para leer archivos del CD sin depender de ningún driver. */
@@ -434,10 +457,12 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     pyos_paging_init();
     pyos_kb_init();
     pyos_serial_init();
+    pyos_scheduler_init();
+    pyos_timer_init();
     pyos_ata_init();
     pyos_iso_init();
     pyos_clear();
-    pyos_log("pyos: kernel_main() arrancó, saltando a pyos_entry()\n");
-    pyos_entry();
-    pyos_halt(); /* si pyos_entry() vuelve, no hay a dónde ir: frenamos la CPU */
+    pyos_log("pyos: kernel_main() arrancó, el tick del PIT lanza pyos_entry()\n");
+    /* Aquí vuelve a boot.asm, que hace sti; el primer tick del PIT arranca
+     * el proceso main vía el scheduler (proc.c). Nada más que hacer acá. */
 }

@@ -39,4 +39,38 @@ int pyos_random_int(int n);
 /* paging.c — memoria virtual (identity map 16 MiB al boot) */
 void pyos_paging_init(void);
 
+/* runtime.c */
+const char* pyos_substr(int start, int len);
+
+/* ata.c + myfs.c — Fase 4: disco IDE y filesystem MYOSFS */
+void pyos_ata_init(void);
+int pyos_fs_init(void);
+int pyos_fopen(const char* name, int mode);   /* 0=leer, 1=escribir(truncar) */
+int pyos_fwrite(int fd, const char* data);
+const char* pyos_fread(int fd, int max);
+int pyos_fclose(int fd);
+int pyos_fexists(const char* name);
+int pyos_fdel(const char* name);
+int pyos_fls(void);
+int pyos_fsize(int fd);
+void pyos_fs_status(void);
+
+/* iso9660.c — lectura del volumen ISO9660 que viaja como módulo multiboot */
+void pyos_iso_init(void);
+int pyos_iso_status(void);
+int pyos_iso_ls(void);
+const char* pyos_iso_read(const char* name);
+void pyos_iso_free(const char* p);
+
+/* timer.c + proc.c — Fase 5: multitarea preemptiva (round-robin, PIT) */
+void pyos_scheduler_init(void);
+void pyos_idle_stack_setup(void);
+void pyos_timer_init(void);
+void pyos_spawn(const char* name, void (*fn)(void));
+void pyos_exit_task(void);
+void pyos_sleep(uint32_t ms);
+void pyos_ps(void);
+uint32_t pyos_uptime(void);
+uint32_t pyos_ticks(void);
+
 #endif

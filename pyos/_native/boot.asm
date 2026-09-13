@@ -27,13 +27,27 @@ extern kernel_main
 
 _start:
     cli                            ; nada de interrupciones hasta que el kernel las configure
+    ; instalar nuestra GDT plana: la de GRUB no garantiza que 0x08 sea un
+    ; selector de código (de hecho ejecutamos con cs=0x10), y el iret de la
+    ; multitarea necesita selectores propios y coherentes.
+    lgdt [gdt_ptr]
+    push dword 0x08                ; selector de código de nuestra GDT
+    push dword reload_cs
+    retf
+reload_cs:
+    mov ax, 0x10                   ; selector de datos de nuestra GDT
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
     mov esp, stack_top             ; stack real, propio de pyos
     push ebx                       ; puntero a la info multiboot (por si el kernel la usa)
     push eax                       ; magic number devuelto por GRUB
 
     call kernel_main               ; salto real a C: acá arranca "pyos"
 
-    cli
+    sti                            ; multitarea: el primer tick del PIT arranca main
 .hang:
     hlt
     jmp .hang
@@ -50,6 +64,7 @@ _start:
 
 extern isr_handler
 extern irq_handler
+extern scheduler_next_esp
 
 isr_common:
     pusha
@@ -89,6 +104,14 @@ irq_common:
     push eax
     call irq_handler
     add esp, 4
+    ; si el scheduler pidió conmutar, cambiamos de stack ahora: el frame que
+    ; hay que retaurar (el del proceso siguiente, completo: segmentos, pusha,
+    ; int_no+err y eip/cs/eflags) ya vive en la pila del proceso destino.
+    cmp dword [scheduler_next_esp], 0
+    je .no_switch
+    mov esp, [scheduler_next_esp]
+    mov dword [scheduler_next_esp], 0
+.no_switch:
     pop gs
     pop fs
     pop es
@@ -170,6 +193,15 @@ IRQ 13, 45
 IRQ 14, 46
 IRQ 15, 47
 
+; Yield por software: int $0x40 — pyos_sleep() lo invoca para bloquearse.
+; Entra por el mismo irq_common (que hace el switch si el scheduler lo pidió)
+; pero no toca el PIC: la CPU ya se encargó de empujar eip/cs/eflags.
+global irq_40_stub
+irq_40_stub:
+    push dword 0
+    push dword 0x40
+    jmp irq_common
+
 ; Tablas de direcciones de los stubs, para que runtime.c pueda cargarlas en la IDT.
 section .rodata
 global isr_stub_table
@@ -183,3 +215,17 @@ global irq_stub_table
 irq_stub_table:
     dd irq_0, irq_1, irq_2, irq_3, irq_4, irq_5, irq_6, irq_7
     dd irq_8, irq_9, irq_10, irq_11, irq_12, irq_13, irq_14, irq_15
+
+; GDT plana del kernel: null | code (0x08) | data (0x10), base 0, 4 GiB,
+; DPL 0. Suficiente para la multitarea en ring 0; GRUB no deja selectores
+; predecibles (el boot entra con cs=0x10), así que la instalamos nosotros.
+align 8
+gdt_start:
+    dq 0x0000000000000000                    ; null
+    db 0xff,0xff,0x00,0x00,0x00,0x9a,0xcf,0x00  ; 0x08 código
+    db 0xff,0xff,0x00,0x00,0x00,0x92,0xcf,0x00  ; 0x10 datos
+gdt_end:
+
+gdt_ptr:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start

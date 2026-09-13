@@ -25,13 +25,18 @@ el compilador (pyos.transpiler) puede convertir a C.
 import atexit
 import random
 import sys
+import time
+import threading
 
 __version__ = "0.5.0"
 
 __all__ = [
     "entry", "draw", "clear", "halt", "reboot", "log", "log_char",
-    "putc", "putdec", "readline", "kbchar", "line", "beep", "random_int",
-    "free", "strdup", "heap_total", "heap_used", "heap_free",
+    "putc", "putdec", "readline", "kbchar", "line", "substr", "beep",
+    "random_int", "free", "strdup", "heap_total", "heap_used", "heap_free",
+    "fsinit", "fopen", "fwrite", "fread", "fclose", "fexists", "fdel",
+    "fls", "fsize", "iso_status", "iso_ls", "iso_read", "iso_free",
+    "spawn", "exit_task", "sleep", "ps", "uptime", "ticks",
 ]
 
 _last_readline = ""
@@ -129,6 +134,13 @@ def line() -> str:
     return _last_readline
 
 
+def substr(start: int, len_rest: int) -> str:
+    """Devuelve porción de la última línea leída: substr(5, 8) toma del
+    carácter 5 en adelante, 8 caracteres. En el kernel real es exactamente
+    lo mismo (copiado del búfer de readline)."""
+    return _last_readline[int(start):int(start) + int(len_rest)]
+
+
 def beep(freq_hz: int, ms: int) -> None:
     """Suena el PC speaker a freq_hz Hz durante ms milisegundos.
     En simulación: no hay speaker, así que solo lo describe por stderr."""
@@ -197,3 +209,197 @@ def reboot() -> None:
     """Reinicia la máquina (pulso de reset por el controller 8042).
     En simulación: termina el programa de forma limpia."""
     raise SystemExit(0)
+
+
+# ---------------------------------------------------------------------------
+# Fase 4 — filesystem: en simulación los "archivos" son strings en memoria
+# (mismos comandos que en el kernel real: fopen/fwrite/fread/fls/...).
+# ---------------------------------------------------------------------------
+
+_fs_files = {}                     # nombre(str) -> {data, fd}
+_fs_next_fd = 1
+
+
+def fsinit() -> int:
+    """Monta el disco (MYOSFS) o lo formatea si está vacío. En el kernel real
+    lee/escribe el disco ATA; en simulación solo habilita un FS en memoria."""
+    global _fs_files
+    _fs_files = {}
+    return 1
+
+
+def fopen(name: str, mode: int) -> int:
+    """Abre un archivo. mode 0 = lectura, 1 = escritura (crea o trunca).
+    Devuelve un fd (entero), o -1 si falla."""
+    global _fs_files
+    n = str(name)
+    if mode == 1:
+        _fs_files.setdefault(n, {"data": "", "fd": None})
+    if n not in _fs_files:
+        return -1
+    h = _fs_files[n]
+    if mode == 1:
+        h["data"] = ""
+    if h["fd"] is None:
+        h["fd"] = _fs_next_fd
+        _fs_next_fd += 1
+    return h["fd"]
+
+
+def fwrite(fd: int, text: str) -> int:
+    global _fs_files
+    for h in _fs_files.values():
+        if h["fd"] == int(fd):
+            h["data"] = str(text)
+            return len(text)
+    return -1
+
+
+def fread(fd: int, max_len: int) -> str:
+    global _fs_files
+    for h in _fs_files.values():
+        if h["fd"] == int(fd):
+            return h["data"][:int(max_len)]
+    return ""
+
+
+def fclose(fd: int) -> int:
+    global _fs_files
+    for h in _fs_files.values():
+        if h["fd"] == int(fd):
+            h["fd"] = None
+            return 0
+    return -1
+
+
+def fexists(name: str) -> int:
+    global _fs_files
+    return 1 if str(name) in _fs_files else 0
+
+
+def fdel(name: str) -> int:
+    global _fs_files
+    return 0 if _fs_files.pop(str(name), None) is not None else -1
+
+
+def fls() -> int:
+    """Cantidad de archivos en el FS."""
+    global _fs_files
+    return len(_fs_files)
+
+
+def fsize(fd: int) -> int:
+    global _fs_files
+    for h in _fs_files.values():
+        if h["fd"] == int(fd):
+            return len(h["data"])
+    return -1
+
+
+# ---------------------------------------------------------------------------
+# Fase 4 — lectura del CD booteado: en simulación no hay CD; se devuelve el
+# mismo contrato que en el kernel (iso_status 1 si "detecta" el archivo,
+# iso_read "" si no existe).
+# ---------------------------------------------------------------------------
+
+_iso_files = {}
+
+
+def iso_status() -> int:
+    """1 si hay CD ISO9660, 0 si no. En simulación: 0 (no hay CD)."""
+    return 0
+
+
+def iso_ls() -> int:
+    """Lista los archivos de la raíz del CD."""
+    if not _iso_files:
+        return 0
+    sys.stdout.write("(simulación: CD virtual)\n")
+    for name, data in _iso_files.items():
+        sys.stdout.write(f"{name}  ({len(data)} B)\n")
+    return len(_iso_files)
+
+
+def iso_read(name: str) -> str:
+    """Lee un archivo del CD a un string del heap (libertad con iso_free).
+    En simulación se puede precargar con _iso_preload()."""
+    return _iso_files.get(str(name), "")
+
+
+def iso_free(text: str) -> None:
+    """Libera el resultado de iso_read en el kernel real. En simulación no-op."""
+    pass
+
+
+def _iso_preload(files: dict[str, str]) -> None:
+    global _iso_files
+    _iso_files = {str(k): str(v) for k, v in files.items()}
+
+
+# ---------------------------------------------------------------------------
+# Fase 5 — multitarea: en simulación un hilo Python por proceso, con el mismo
+# contrato de API que el kernel real (spawn/sleep/exit_task/ps/uptime/ticks).
+# ---------------------------------------------------------------------------
+
+_sim_procs = {}          # nombre -> {"thread", "done"}
+_sim_next_pid = 2        # el pid 1 es el proceso inicial
+_monotonic_start = time.monotonic()
+
+
+def spawn(name: str, fn) -> int:
+    """Crea un proceso que corre `fn` (sin argumentos). En simulación corre en
+    un hilo Python aparte; en el kernel real crea un stack propio en el heap
+    y lo agrega al scheduler round-robin del PIT."""
+    global _sim_next_pid
+    n = str(name)
+    pid = _sim_next_pid
+    _sim_next_pid += 1
+
+    def _body():
+        try:
+            fn()
+        except SystemExit:
+            pass
+        finally:
+            _sim_procs[n]["done"] = True
+
+    _sim_procs[n] = {"thread": threading.Thread(target=_body, daemon=True),
+                     "done": False}
+    _sim_procs[n]["thread"].start()
+    return pid
+
+
+def exit_task() -> None:
+    """Termina el proceso actual. En simulación: levanta SystemExit para que
+    el hilo termine; en el kernel real pasa el proceso a EXITED."""
+    sys.stderr.write("[sim] exit_task\n")
+    raise SystemExit(0)
+
+
+def sleep(ms: int) -> None:
+    """Suspende el proceso actual por `ms` milisegundos (1 tick = 10 ms en el
+    kernel real). En simulación duerme el hilo real."""
+    sys.stderr.write(f"[sim] sleep {int(ms)}ms\n")
+    time.sleep(int(ms) / 1000.0)
+
+
+def ps() -> int:
+    """Lista los procesos vivos."""
+    sys.stdout.write("PID   Nombre\n")
+    pid = 1
+    sys.stdout.write(f"{pid}    main\n")
+    for n, p in _sim_procs.items():
+        pid += 1
+        state = "termino" if p["done"] else "corriendo"
+        sys.stdout.write(f"{pid}    {n} ({state})\n")
+    return pid
+
+
+def uptime() -> int:
+    """Tiempo encendido en ticks (1 tick = 10 ms): simula con el reloj real."""
+    return int((time.monotonic() - _monotonic_start) * 100)
+
+
+def ticks() -> int:
+    """Contador de ticks del PIT (simulado con el reloj real; mismo significado)."""
+    return uptime()

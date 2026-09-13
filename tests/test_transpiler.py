@@ -242,7 +242,9 @@ def test_shell_kernel_transpiles():
     assert "pyos_readline();" in c
     assert "pyos_reboot();" in c
     assert "pyos_halt();" in c
-    assert "== 32" in c or "!= 32" in c  # el espacio del separador de comandos
+    assert "pyos_fs_init()" in c          # v0.6: FS montado al boot
+    assert "pyos_substr" in c             # y el truco de extraer argumentos
+    assert "pyos_iso_read" in c           # lector del CD booteado
 
 
 def test_string_concat():
@@ -367,3 +369,62 @@ def test_accented_string_maps_to_cp437():
     c = transpile(src)
     assert "\\242" in c   # 'ó' -> 0xA2 -> octal 242
     assert "informaci\u00f3n".encode("utf-8") not in c.encode("utf-8")
+
+
+def test_fase5_spawn_sleep_uptime_ticks_ps():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    t = pyos.ticks()\n"
+        "    u = pyos.uptime()\n"
+        "    pyos.spawn(\"contador\", contador)\n"
+        "    pyos.sleep(500)\n"
+        "    pyos.ps()\n"
+        "    pyos.halt()\n"
+        "def contador():\n"
+        "    pyos.sleep(200)\n"
+    )
+    c = transpile(src)
+    assert "pyos_ticks()" in c
+    assert "pyos_uptime()" in c
+    assert 'pyos_spawn("contador", (void (*)(void))contador)' in c
+    assert "pyos_sleep(500)" in c
+    assert "pyos_ps()" in c
+
+
+def test_fase5_spawn_forwards_function_expression():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.spawn(\"tarea\", ident)\n"
+        "    pyos.halt()\n"
+        "def ident():\n"
+        "    pass\n"
+    )
+    c = transpile(src)
+    assert 'pyos_spawn("tarea", (void (*)(void))ident)' in c
+
+
+def test_fase5_spawn_requires_function():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.spawn(\"raro\", 42)\n"
+        "    pyos.halt()\n"
+    )
+    with pytest.raises(TranspileError, match="función definida"):
+        transpile(src)
+
+
+def test_fase5_exit_task():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.exit_task()\n"
+    )
+    c = transpile(src)
+    assert "pyos_exit_task()" in c
