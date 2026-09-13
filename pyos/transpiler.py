@@ -18,8 +18,9 @@ Subconjunto soportado (ver README.md para la lista completa y ejemplos):
   - Operadores: + - * // % en enteros; comparaciones; and / or
   - Comparación == / != entre strings (pyos_streq); + entre strings concatena
   - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.reboot / pyos.log /
-    pyos.putc / pyos.log_char / pyos.readline / pyos.kbchar / pyos.line /
-    pyos.beep / pyos.random_int
+    pyos.putc / pyos.putdec / pyos.log_char / pyos.readline / pyos.kbchar /
+    pyos.line / pyos.beep / pyos.random_int (y memoria: pyos.strdup /
+    pyos.free / pyos.heap_total / pyos.heap_used / pyos.heap_free)
   - ord('x') como constante de tiempo de compilación (útil para comparar el
     código ASCII de teclas contra literales)
   - Llamadas a otras funciones definidas en el mismo archivo
@@ -64,12 +65,19 @@ _RUNTIME_CALLS = {
     "log": ("pyos_log", "int"),
     "log_char": ("pyos_log_char", "int"),
     "putc": ("pyos_putc", "int"),
+    "putdec": ("pyos_putdec", "int"),       # pyos.putdec(n): imprime un número
     "readline": ("pyos_readline", "int"),
     "kbchar": ("pyos_kb_char", "int"),
     "reboot": ("pyos_reboot", "int"),
     "line": ("pyos_line", "str"),          # la última línea leída, como string
     "beep": ("pyos_beep", "int"),          # pyos.beep(frecuencia_hz, ms)
     "random_int": ("pyos_random_int", "int"),  # pyos.random_int(n) -> 0..n-1
+    # Fase 3 — memoria dinámica real (heap.c)
+    "free": ("pyos_free", "int"),          # pyos.free(ptr_resultado_de_strdup)
+    "strdup": ("pyos_strdup", "str"),      # copia un string al heap
+    "heap_total": ("pyos_heap_total", "int"),
+    "heap_used": ("pyos_heap_used", "int"),
+    "heap_free": ("pyos_heap_free", "int"),
 }
 
 

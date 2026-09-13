@@ -30,7 +30,8 @@ __version__ = "0.5.0"
 
 __all__ = [
     "entry", "draw", "clear", "halt", "reboot", "log", "log_char",
-    "putc", "readline", "kbchar", "line", "beep", "random_int",
+    "putc", "putdec", "readline", "kbchar", "line", "beep", "random_int",
+    "free", "strdup", "heap_total", "heap_used", "heap_free",
 ]
 
 _last_readline = ""
@@ -141,6 +142,49 @@ def random_int(n: int) -> int:
     if n <= 0:
         return 0
     return random.randrange(n)
+
+
+def putdec(n: int) -> None:
+    """Imprime el entero n (sin formato, decimal). En simulación: lo imprime
+    a stdout. En el kernel real escribe dígito por dígito en el VGA."""
+    sys.stdout.write(str(int(n)))
+
+
+def free(ptr) -> None:
+    """Libera un bloque del heap dinámico (el resultado de pyos.strdup o de
+    pyos.line() == ... no se debe liberar: solo lo que vino del heap).
+    En simulación: no-op (los strings de Python son inmutables y se liberan
+    solos)."""
+    pass
+
+
+def strdup(s: str) -> str:
+    """Copia un string al heap dinámico y devuelve el nuevo string.
+    En el kernel real esto hace exactamente eso (malloc + memcpy); usá
+    pyos.free() cuando termines, porque el kernel no tiene GC.
+    En simulación solo aproxima el uso del heap (los strings de Python se
+    liberan solos, así que free() es un no-op)."""
+    global _heap_used
+    _heap_used += len(s) + 1
+    return str(s)
+
+
+def heap_total() -> int:
+    """Tamaño total del heap dinámico del kernel, en bytes."""
+    return 1 << 20
+
+
+def heap_used() -> int:
+    """Bytes ocupados en el heap dinámico (bloques sin liberar)."""
+    return _heap_used
+
+
+def heap_free() -> int:
+    """Bytes libres en el heap dinámico."""
+    return heap_total() - heap_used()
+
+
+_heap_used = 0
 
 
 def halt() -> None:

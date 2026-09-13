@@ -19,8 +19,10 @@ from pathlib import Path
 from .transpiler import Transpiler, TranspileError
 
 _NATIVE_DIR = Path(__file__).parent / "_native"
+_NATIVE_LINUX_DIR = Path(__file__).parent / "_native_linux"
 
 _REQUIRED_TOOLS = ["gcc", "nasm", "grub-mkrescue", "xorriso"]
+_LINUX_TOOLS = ["gcc"]
 
 
 class BuildError(Exception):
@@ -32,11 +34,13 @@ class BuildResult:
     iso_path: Path
     kernel_elf_path: Path
     generated_c_path: Path
+    initrd_path: Path | None = None
 
 
-def check_toolchain() -> list[str]:
+def check_toolchain(tools: list[str] | None = None) -> list[str]:
     """Devuelve la lista de herramientas requeridas que faltan en el sistema."""
-    return [t for t in _REQUIRED_TOOLS if shutil.which(t) is None]
+    tools = tools or _REQUIRED_TOOLS
+    return [t for t in tools if shutil.which(t) is None]
 
 
 def _run(cmd: list[str], cwd: Path, log) -> None:
@@ -55,25 +59,51 @@ def build(
     source_path: str | Path,
     output: str | Path = "pyos.iso",
     *,
+    target: str = "iso",
     work_dir: str | Path | None = None,
     keep_work_dir: bool = False,
     log=print,
 ) -> BuildResult:
-    """Compila `source_path` (un kernel.py escrito con la API de pyos) a una
-    ISO booteable real en `output`."""
+    """Compila `source_path` (un kernel.py escrito con la API de pyos).
+
+    `target`:
+      - "iso" (default): ISO booteable Multiboot para QEMU/PC real
+      - "linux-init": binario estático i386 (sin libc) para usar como PID 1
+        de un Linux, empaquetado también en un initramfs cpio/gzip.
+    """
     source_path = Path(source_path).resolve()
     output = Path(output).resolve()
 
-    missing = check_toolchain()
+    if target not in ("iso", "linux-init"):
+        raise BuildError(f"target inválido: {target!r} (usa 'iso' o 'linux-init')")
+
+    if not source_path.is_file():
+        raise BuildError(f"no existe el archivo fuente: {source_path}")
+
+    if target == "linux-init":
+        return _build_linux_init(
+            source_path, output,
+            work_dir=work_dir, keep_work_dir=keep_work_dir, log=log,
+        )
+    return _build_iso(source_path, output, work_dir=work_dir, keep_work_dir=keep_work_dir, log=log)
+
+
+def _build_iso(
+    source_path: Path,
+    output: Path,
+    *,
+    work_dir: str | Path | None,
+    keep_work_dir: bool,
+    log,
+) -> BuildResult:
+    """Compila a una ISO booteable real (bootloader multiboot + GRUB)."""
+    missing = check_toolchain(_REQUIRED_TOOLS)
     if missing:
         raise BuildError(
             "faltan herramientas del sistema para compilar un kernel real: "
             + ", ".join(missing)
             + ". Instalalas con tu gestor de paquetes (ver README.md)."
         )
-
-    if not source_path.is_file():
-        raise BuildError(f"no existe el archivo fuente: {source_path}")
 
     source = source_path.read_text(encoding="utf-8")
 
@@ -149,6 +179,84 @@ def build(
         log(f"Probalo con: qemu-system-i386 -cdrom {output}")
         return BuildResult(
             iso_path=output, kernel_elf_path=kernel_elf, generated_c_path=generated_c
+        )
+    finally:
+        if not keep_work_dir and not work_dir:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def _build_linux_init(
+    source_path: Path,
+    output: Path,
+    *,
+    work_dir: str | Path | None,
+    keep_work_dir: bool,
+    log,
+) -> BuildResult:
+    """Compila el mismo kernel.py a un /init estático (ELF i386, sin libc) y a
+    un initramfs cpio+gzip listo para `qemu -initrd` o boot directo de Linux.
+
+    Runtime: _native_linux/runtime_linux.c (syscalls int $0x80 directas).
+    heap.c y rng.c son los mismos que en la ISO; speaker.c NO (es hardware de
+    PC) — un kernel.py que llame pyos.beep() fallará acá en el link.
+    """
+    missing = check_toolchain(_LINUX_TOOLS)
+    if missing:
+        raise BuildError(
+            "faltan herramientas del sistema para --target=linux-init: "
+            + ", ".join(missing)
+        )
+
+    source = source_path.read_text(encoding="utf-8")
+
+    log(f"[1/4] Transpilando {source_path.name} → C ...")
+    try:
+        c_source = Transpiler().transpile(source, filename=str(source_path))
+    except TranspileError as e:
+        raise BuildError(f"error de transpilación: {e}") from e
+
+    work = Path(work_dir).resolve() if work_dir else Path(
+        _mkworkdir(source_path.stem)
+    )
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        generated_c = work / "generated.c"
+        generated_c.write_text(c_source, encoding="utf-8")
+
+        for fname in ("pyos_runtime.h",):
+            shutil.copy(_NATIVE_DIR / fname, work / fname)
+        shutil.copy(_NATIVE_LINUX_DIR / "runtime_linux.c", work / "runtime_linux.c")
+        for fname in ("heap.c", "rng.c"):
+            shutil.copy(_NATIVE_DIR / fname, work / fname)
+
+        log("[2/4] Compilando runtime_linux.c + generated.c (estático, i386, sin libc) ...")
+        cflags = [
+            "-m32", "-ffreestanding", "-fno-pie", "-fno-stack-protector",
+            "-fno-asynchronous-unwind-tables",
+            "-Wall", "-Wextra", "-O2",
+        ]
+
+        log("[3/4] Linkeando el binario init ...")
+        _run(
+            ["gcc", *cflags, "-nostdlib",
+             "generated.c", "runtime_linux.c", "heap.c", "rng.c",
+             "-o", str(output), "-lgcc"],
+            work, log,
+        )
+        output.chmod(0o755)
+
+        log("[4/4] Empaquetando initramfs (cpio newc + gzip) ...")
+        from .cpio import build_initramfs_gz
+        initrd = output.with_suffix(".cpio.gz")
+        initrd.write_bytes(build_initramfs_gz({"init": output.read_bytes()}))
+
+        log(f"\nListo: {output} (PID 1 de Linux) + {initrd}")
+        log(f"Probalo en QEMU con: qemu-system-i386 -kernel vmlinuz "
+            f"-initrd {initrd} -append \"rdinit=/init console=ttyS0\" "
+            f"-nographic")
+        return BuildResult(
+            iso_path=output, kernel_elf_path=output, generated_c_path=generated_c,
+            initrd_path=initrd,
         )
     finally:
         if not keep_work_dir and not work_dir:

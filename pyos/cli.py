@@ -3,10 +3,49 @@
 from __future__ import annotations
 
 import argparse
+import re
 import runpy
+import shutil
 import sys
+from pathlib import Path
 
 from .build import BuildError, build, check_toolchain
+
+_TEMPLATE_DIR = Path(__file__).parent / "templates" / "basic"
+
+
+def _slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-") or "myos"
+
+
+def _cmd_new(args: argparse.Namespace) -> int:
+    dest = Path(args.directory)
+    if dest.exists():
+        print(f"error: ya existe: {dest}", file=sys.stderr)
+        return 1
+
+    name = args.name or dest.name
+    slug = _slugify(name)
+
+    dest.mkdir(parents=True)
+    try:
+        for tpl in (_TEMPLATE_DIR / "kernel.py", _TEMPLATE_DIR / "README.md"):
+            text = tpl.read_text(encoding="utf-8")
+            text = text.replace("__MYOS_NAME__", name).replace("__MYOS_SLUG__", slug)
+            (dest / tpl.name).write_text(text, encoding="utf-8")
+    except Exception as e:
+        shutil.rmtree(dest, ignore_errors=True)
+        print(f"error: no se pudo crear el proyecto: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Creado {dest}/")
+    print(f"  - {dest / 'kernel.py'}   (tu OS, editá este archivo)")
+    print(f"  - {dest / 'README.md'}")
+    print("\nCorré la lógica en simulación:")
+    print(f"  pyos simulate {dest / 'kernel.py'}")
+    print("Y compile una ISO real:")
+    print(f"  pyos build {dest / 'kernel.py'} -o {slug}.iso")
+    return 0
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
@@ -14,6 +53,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         build(
             args.source,
             output=args.output,
+            target=args.target,
             keep_work_dir=args.keep_work_dir,
             work_dir=args.work_dir,
         )
@@ -51,9 +91,16 @@ def main(argv: list[str] | None = None) -> int:
     ))
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_build = sub.add_parser("build", help="Compila un kernel.py a una ISO booteable")
+    p_new = sub.add_parser("new", help="Crea un proyecto de pyos a partir de una plantilla")
+    p_new.add_argument("directory", help="Directorio del nuevo proyecto")
+    p_new.add_argument("--name", default=None, help="Nombre del OS (por defecto, el del directorio)")
+    p_new.set_defaults(func=_cmd_new)
+
+    p_build = sub.add_parser("build", help="Compila un kernel.py a una ISO booteable (o /init de Linux)")
     p_build.add_argument("source", help="Archivo .py escrito con la API de pyos")
     p_build.add_argument("-o", "--output", default="pyos.iso", help="Ruta de la ISO de salida")
+    p_build.add_argument("--target", choices=["iso", "linux-init"], default="iso",
+                          help="'iso' (default): ISO Multiboot; 'linux-init': /init de Linux (PID 1)")
     p_build.add_argument("--keep-work-dir", action="store_true",
                           help="No borrar los archivos intermedios (boot.o, kernel.elf, etc.)")
     p_build.add_argument("--work-dir", default=None,

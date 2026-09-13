@@ -26,4 +26,4 @@ pyos = "pyos.cli:main"
 packages = ["pyos"]
 
 [tool.setuptools.package-data]
-pyos = ["_native/*"]
+pyos = ["_native/*", "_native_linux/*", "templates/basic/*"]

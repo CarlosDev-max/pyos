@@ -1,8 +1,9 @@
 /* runtime.c — el "libc" mínimo de pyos.
- * Estas son las únicas funciones que existen en el sistema: no hay malloc,
- * no hay filesystem todavía, no hay hilos. Todo lo que el código Python del
- * usuario transpilado a C invoca (pyos_draw, pyos_clear, pyos_readline, etc.)
- * vive acá, junto con la infraestructura de interrupciones (IDT, PIC 8259) y
+ * Estas son las únicas funciones que existen en el sistema: no hay libc, el
+ * filesystem y la multitarea viven en otros archivos (ata.c/myfs.c, timer.c).
+ * Todo lo que el código Python del usuario transpilado a C invoca
+ * (pyos_draw, pyos_clear, pyos_readline, pyos_heap_*, etc.) vive acá o en
+ * heap.c, junto con la infraestructura de interrupciones (IDT, PIC 8259) y
  * el driver de teclado PS/2.
  */
 
@@ -71,6 +72,20 @@ void pyos_putc(char c) {
 void pyos_draw(const char* s) {
     while (*s) pyos_putc(*s++);
 }
+
+void pyos_putdec(uint32_t n) {
+    char buf[12];
+    int i = 12;
+    do {
+        buf[--i] = (char)('0' + (n % 10));
+        n /= 10;
+    } while (n);
+    while (i < 12) pyos_putc(buf[i++]);
+}
+
+/* ---------- Heap: área que heap.c recibe vía pyos_heap_init() ---------- */
+#define KHEAP_AREA_SIZE (1u << 20)
+static uint8_t kheap_area[KHEAP_AREA_SIZE] __attribute__((aligned(4096)));
 
 /* ---------- Puerto serie COM1 (0x3F8) — para logs y debug en QEMU ---------- */
 static inline void outb(uint16_t port, uint8_t val) {
@@ -368,6 +383,7 @@ void pyos_kb_init(void) {
 extern void pyos_entry(void); /* definida en generated.c, transpilada del Python del usuario */
 
 void kernel_main(void) {
+    pyos_heap_init((uint32_t)kheap_area, sizeof(kheap_area));
     pyos_kb_init();
     pyos_serial_init();
     pyos_clear();

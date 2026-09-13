@@ -36,3 +36,34 @@ def test_kernel_builds_valid_multiboot(example, tmp_path):
         ["grub-file", "--is-x86-multiboot", str(result.kernel_elf_path)]
     )
     assert proc.returncode == 0, "el ELF generado no es un multiboot válido"
+
+
+@pytest.mark.skipif(
+    bool(check_toolchain(["gcc"])) or shutil.which("grub-file") is None,
+    reason="falta gcc (multilib)",
+)
+def test_linux_init_builds_and_runs(tmp_path):
+    """El mismo kernel.py compilado como /init de Linux (i386 estático, sin
+    libc) debe correr como un proceso real del sistema host, imprimiendo a
+    stdout lo mismo que dibujaría en VGA."""
+    hello = Path(__file__).parent.parent / "examples" / "hello_kernel" / "kernel.py"
+    out_init = tmp_path / "init"
+    result = build(hello, output=out_init, target="linux-init")
+
+    assert out_init.is_file()
+    assert result.initrd_path is not None and result.initrd_path.is_file()
+
+    proc = subprocess.run(
+        [str(out_init)],
+        timeout=15,
+        input="", capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"init murió mal: {proc.stderr}"
+    assert "contador OK" in proc.stdout
+    assert "pyos > listo" in proc.stdout
+
+
+def test_linux_init_build_rejects_wrong_target(tmp_path):
+    hello = Path(__file__).parent.parent / "examples" / "hello_kernel" / "kernel.py"
+    with pytest.raises(Exception, match="target inválido"):
+        build(hello, output=tmp_path / "x", target="nope")
