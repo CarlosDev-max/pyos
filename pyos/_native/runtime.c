@@ -322,6 +322,22 @@ const char* pyos_line(void) {
     return kb_line;
 }
 
+/* pyos.substr(start, len): trozo de la última línea leída, copiado a un búfer
+ * estático. Es lo que permite sacar el argumento de un comando sin slicing
+ * (que el transpiler todavía no soporta). */
+static char substr_buf[KB_LINE_MAX + 1];
+const char* pyos_substr(int start, int len) {
+    if (start < 0) start = 0;
+    if (len < 0) len = 0;
+    int i = 0;
+    while (i < len && (start + i) < kb_line_len && i < KB_LINE_MAX) {
+        substr_buf[i] = kb_line[start + i];
+        i++;
+    }
+    substr_buf[i] = 0;
+    return substr_buf;
+}
+
 /* ---------- Control de CPU ---------- */
 void pyos_halt(void) {
     __asm__ volatile ("cli");
@@ -382,11 +398,44 @@ void pyos_kb_init(void) {
 /* ---------- Entry point real, llamado desde boot.asm ---------- */
 extern void pyos_entry(void); /* definida en generated.c, transpilada del Python del usuario */
 
-void kernel_main(void) {
+/* el volumen ISO9660 que GRUB carga como módulo multiboot (data.iso): lo usa
+ * iso9660.c para leer archivos del CD sin depender de ningún driver. */
+const uint8_t* pyos_cd_bytes = 0;
+uint32_t pyos_cd_len = 0;
+
+/* busca el primer módulo multiboot que tenga un PVD ISO9660 en su sector 16
+ * y lo deja en pyos_cd_bytes/pyos_cd_len. Estructura de la info multiboot v1:
+ *   +0  flags | +20 mods_count | +24 mods_addr
+ *   cada módulo: +0 mod_start +4 mod_end +8 cmdline +12 pad */
+static void mb_find_iso(uint32_t mb_info) {
+    if (!mb_info) return;
+    uint32_t flags = *(volatile uint32_t*)mb_info;
+    if (!(flags & 0x4) || !(flags & 0x1)) return; /* requiere mods */
+    uint32_t mods_count = *(volatile uint32_t*)(mb_info + 20);
+    uint32_t mods_addr = *(volatile uint32_t*)(mb_info + 24);
+    if (!mods_addr || mods_count == 0) return;
+    for (uint32_t i = 0; i < mods_count; i++) {
+        uint32_t base = *(volatile uint32_t*)(mods_addr + i * 16);
+        uint32_t end = *(volatile uint32_t*)(mods_addr + i * 16 + 4);
+        if (end <= base + 16u * 2048u) continue;
+        const uint8_t* pvd = (const uint8_t*)(uintptr_t)base + 16u * 2048u;
+        if (pvd[0] == 1) { /* volumen descriptor primario */
+            pyos_cd_bytes = (const uint8_t*)(uintptr_t)base;
+            pyos_cd_len = end - base;
+            return;
+        }
+    }
+    return;
+}
+
+void kernel_main(uint32_t magic, uint32_t mb_info) {
+    if (magic == 0x2BADB002) mb_find_iso(mb_info);
     pyos_heap_init((uint32_t)kheap_area, sizeof(kheap_area));
     pyos_paging_init();
     pyos_kb_init();
     pyos_serial_init();
+    pyos_ata_init();
+    pyos_iso_init();
     pyos_clear();
     pyos_log("pyos: kernel_main() arrancó, saltando a pyos_entry()\n");
     pyos_entry();

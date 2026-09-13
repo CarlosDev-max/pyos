@@ -62,6 +62,7 @@ def build(
     target: str = "iso",
     work_dir: str | Path | None = None,
     keep_work_dir: bool = False,
+    extra_iso_files: dict[str, bytes] | None = None,
     log=print,
 ) -> BuildResult:
     """Compila `source_path` (un kernel.py escrito con la API de pyos).
@@ -70,6 +71,10 @@ def build(
       - "iso" (default): ISO booteable Multiboot para QEMU/PC real
       - "linux-init": binario estático i386 (sin libc) para usar como PID 1
         de un Linux, empaquetado también en un initramfs cpio/gzip.
+
+    `extra_iso_files`: archivos adicionales {ruta_relativa_dentro_de_/boot:
+    bytes} que se meten en la ISO, p. ej. {"saludo.txt": b"hola"} para poder
+    leerlos desde el kernel con pyos.iso_read (el CD booteado).
     """
     source_path = Path(source_path).resolve()
     output = Path(output).resolve()
@@ -85,7 +90,11 @@ def build(
             source_path, output,
             work_dir=work_dir, keep_work_dir=keep_work_dir, log=log,
         )
-    return _build_iso(source_path, output, work_dir=work_dir, keep_work_dir=keep_work_dir, log=log)
+    return _build_iso(
+        source_path, output,
+        work_dir=work_dir, keep_work_dir=keep_work_dir,
+        extra_iso_files=extra_iso_files, log=log,
+    )
 
 
 def _build_iso(
@@ -94,6 +103,7 @@ def _build_iso(
     *,
     work_dir: str | Path | None,
     keep_work_dir: bool,
+    extra_iso_files: dict[str, bytes] | None,
     log,
 ) -> BuildResult:
     """Compila a una ISO booteable real (bootloader multiboot + GRUB)."""
@@ -121,7 +131,8 @@ def _build_iso(
         generated_c = work / "generated.c"
         generated_c.write_text(c_source, encoding="utf-8")
 
-        native_c_files = ("runtime.c", "heap.c", "paging.c", "speaker.c", "rng.c")
+        native_c_files = ("runtime.c", "heap.c", "paging.c", "speaker.c",
+                      "rng.c", "ata.c", "myfs.c", "iso9660.c")
         for fname in (*native_c_files, "pyos_runtime.h", "boot.asm", "linker.ld"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 
@@ -159,11 +170,38 @@ def _build_iso(
         grub_dir = iso_root / "boot" / "grub"
         grub_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(kernel_elf, iso_root / "boot" / "kernel.elf")
+
+        # El volumen con los archivos que el kernel podrá leer: se empaqueta
+        # como un data.iso aparte y GRUB lo carga en memoria como módulo
+        # multiboot (el kernel lo lee con pyos.iso_read/pyos.iso_ls).
+        extra = extra_iso_files or {}
+        if extra:
+            data_root = work / "data_root"
+            data_root.mkdir(parents=True, exist_ok=True)
+            for rel_path, data in extra.items():
+                # rutas tipo "boot/foo.txt" se normalizan a la raíz del volumen
+                # de datos (que es donde el kernel busca con pyos.iso_read)
+                rel_path = rel_path.lstrip("/")
+                if rel_path.startswith("boot/"):
+                    rel_path = rel_path[len("boot/"):]
+                target = data_root / rel_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                log(f"  extra: {rel_path} ({len(data)} B)")
+            data_iso = iso_root / "boot" / "data.iso"
+            _run(
+                ["xorriso", "-as", "mkisofs", "-R", "-J",
+                 "-o", str(data_iso), str(data_root)],
+                work, log,
+            )
+
+        module_line = "    module /boot/data.iso\n" if extra else ""
         (grub_dir / "grub.cfg").write_text(
             'set timeout=0\n'
             'set default=0\n'
             'menuentry "pyos" {\n'
             '    multiboot /boot/kernel.elf\n'
+            + module_line +
             '    boot\n'
             "}\n",
             encoding="utf-8",
