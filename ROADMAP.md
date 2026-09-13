@@ -58,6 +58,27 @@ multitarea sin poder reservar y liberar memoria por proceso).
 - Explorar UEFI además de BIOS/multiboot (más cercano al hardware moderno)
 - Documentación de usuario final, no solo de desarrollador
 
+## 🔜 Fase 8 — Gráficos 3D (el cierre del roadmap)
+Ser realista acá importa: no hay forma de escribir un driver de GPU real
+(NVIDIA/AMD/Intel) a mano — son miles de páginas de specs cerradas, y eso
+queda totalmente fuera del alcance de este proyecto. El camino que sí es
+viable y 100% real:
+
+- Salir del VGA texto (0xB8000) a un framebuffer lineal de verdad: VESA VBE
+  (llamada a BIOS en modo real antes de saltar a protegido) o virtio-gpu de
+  QEMU (spec abierta, sirve para probar sin hardware físico)
+- Rasterizador de software en C: matrices 4x4, proyección de vértices,
+  rasterización de triángulos con z-buffer — todo corre en la CPU, no hay
+  aceleración por hardware real
+- API en Python vía el transpiler: algo como `pyos.mesh(...)`,
+  `pyos.rotate(x, y, z)`, `pyos.render_frame()`
+- Depende de la Fase 3 (memoria real, para los buffers de vértices/frame) y
+  se beneficia de la Fase 5 (multitarea, para no bloquear teclado/red
+  mientras se renderiza)
+- Meta razonable y honesta: un cubo girando con sombreado básico (Gouraud),
+  no un motor de juegos — pero sería un OS propio con gráficos 3D reales,
+  corriendo en hardware real sin Linux debajo
+
 ---
 
 Cada fase, al cerrarse, debe dejar: código compilando y booteando de
