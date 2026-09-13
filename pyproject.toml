@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyos"
+version = "0.1.0"
+description = "Framework en Python para escribir sistemas operativos reales: transpila a C, compila con un bootloader multiboot2 y genera una ISO booteable de verdad."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "carlosbuenagent" }]
+keywords = ["os", "kernel", "bare-metal", "multiboot", "osdev", "transpiler"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Operating System Kernels",
+    "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[project.scripts]
+pyos = "pyos.cli:main"
+
+[tool.setuptools]
+packages = ["pyos"]
+
+[tool.setuptools.package-data]
+pyos = ["_native/*"]

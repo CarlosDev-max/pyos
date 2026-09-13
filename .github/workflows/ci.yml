@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar toolchain nativo (nasm, gcc-multilib, grub, xorriso)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nasm xorriso grub-pc-bin grub-common mtools gcc-multilib
+
+      - name: Instalar pyos + pytest
+        run: |
+          pip install -e . pytest
+
+      - name: pyos doctor
+        run: pyos doctor
+
+      - name: Tests (incluye compilar el kernel de ejemplo y validar multiboot)
+        run: python -m pytest tests/ -v
