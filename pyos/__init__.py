@@ -23,13 +23,14 @@ el compilador (pyos.transpiler) puede convertir a C.
 """
 
 import atexit
+import random
 import sys
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "entry", "draw", "clear", "halt", "reboot", "log", "log_char",
-    "putc", "readline", "kbchar",
+    "putc", "readline", "kbchar", "line", "beep", "random_int",
 ]
 
 _last_readline = ""
@@ -119,6 +120,27 @@ def kbchar(i: int) -> int:
     if i < 0 or i >= len(_last_readline):
         return -1
     return ord(_last_readline[i])
+
+
+def line() -> str:
+    """Devuelve la última línea leída con readline(), como string completo
+    (para comparar con == en vez de carácter por carácter)."""
+    return _last_readline
+
+
+def beep(freq_hz: int, ms: int) -> None:
+    """Suena el PC speaker a freq_hz Hz durante ms milisegundos.
+    En simulación: no hay speaker, así que solo lo describe por stderr."""
+    sys.stderr.write(f"[beep {freq_hz}Hz {ms}ms]\n")
+
+
+def random_int(n: int) -> int:
+    """Entero pseudoaleatorio en [0, n). En el kernel real usa un LCG
+    sembrado con RDTSC; en simulación usa random.randrange (mismo rango,
+    generador distinto — no esperes la misma secuencia en los dos lados)."""
+    if n <= 0:
+        return 0
+    return random.randrange(n)
 
 
 def halt() -> None:

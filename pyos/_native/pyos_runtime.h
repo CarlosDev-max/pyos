@@ -15,5 +15,15 @@ void pyos_reboot(void);
 void pyos_kb_init(void);
 int pyos_readline(void);
 int pyos_kb_char(int i);
+const char* pyos_line(void);
+
+/* heap.c — strings dinámicos (concat + conversión de int) */
+const char* pyos_concat(const char* a, const char* b);
+const char* pyos_int_to_str(int value);
+int pyos_streq(const char* a, const char* b);
+
+/* speaker.c / rng.c */
+void pyos_beep(int freq_hz, int ms);
+int pyos_random_int(int n);
 
 #endif

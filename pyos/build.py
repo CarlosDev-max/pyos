@@ -91,28 +91,32 @@ def build(
         generated_c = work / "generated.c"
         generated_c.write_text(c_source, encoding="utf-8")
 
-        for fname in ("runtime.c", "pyos_runtime.h", "boot.asm", "linker.ld"):
+        native_c_files = ("runtime.c", "heap.c", "speaker.c", "rng.c")
+        for fname in (*native_c_files, "pyos_runtime.h", "boot.asm", "linker.ld"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 
         log("[2/6] Ensamblando bootloader (boot.asm → boot.o) ...")
         _run(["nasm", "-f", "elf32", "boot.asm", "-o", "boot.o"], work, log)
 
-        log("[3/6] Compilando runtime.c y generated.c (freestanding, -m32) ...")
+        log("[3/6] Compilando runtime nativo y generated.c (freestanding, -m32) ...")
         cflags = [
             "-m32", "-ffreestanding", "-fno-pie", "-fno-stack-protector",
             "-fno-asynchronous-unwind-tables",
             "-Wall", "-Wextra", "-O2", "-c",
         ]
-        _run(["gcc", *cflags, "runtime.c", "-o", "runtime.o"], work, log)
-        _run(["gcc", *cflags, "generated.c", "-o", "generated.o"], work, log)
+        object_files = ["boot.o"]
+        for c_file in (*native_c_files, "generated.c"):
+            obj = c_file.replace(".c", ".o")
+            _run(["gcc", *cflags, c_file, "-o", obj], work, log)
+            object_files.append(obj)
 
-        log("[4/6] Linkeando kernel (kernel.elf, multiboot2 en 1MB) ...")
+        log("[4/6] Linkeando kernel (kernel.elf, multiboot en 1MB) ...")
         _run(
             [
                 "gcc", "-m32", "-ffreestanding", "-nostdlib", "-static",
                 "-Wl,--build-id=none",
                 "-T", "linker.ld",
-                "boot.o", "runtime.o", "generated.o",
+                *object_files,
                 "-o", "kernel.elf", "-lgcc",
             ],
             work, log,

@@ -243,3 +243,127 @@ def test_shell_kernel_transpiles():
     assert "pyos_reboot();" in c
     assert "pyos_halt();" in c
     assert "== 32" in c or "!= 32" in c  # el espacio del separador de comandos
+
+
+def test_string_concat():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    a = \"hola \"\n"
+        "    b = a + \"mundo\"\n"
+        "    pyos.draw(b)\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_concat(a, " in c
+
+
+def test_str_builtin_converts_int():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    x = 5\n"
+        "    pyos.draw(str(x))\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_int_to_str(x)" in c
+
+
+def test_str_builtin_rejects_str_arg_is_noop():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    a = \"ya soy str\"\n"
+        "    pyos.draw(str(a))\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_int_to_str" not in c
+
+
+def test_string_equality_uses_streq():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    cmd = pyos.line()\n"
+        "    if cmd == \"help\":\n"
+        "        pyos.draw(\"ok\")\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_streq(cmd, \"help\")" in c
+
+
+def test_string_notequal_negates_streq():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    cmd = pyos.line()\n"
+        "    if cmd != \"help\":\n"
+        "        pyos.draw(\"no\")\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "!pyos_streq(cmd, \"help\")" in c
+
+
+def test_string_ordering_comparison_rejected():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    cmd = pyos.line()\n"
+        "    if cmd < \"help\":\n"
+        "        pyos.draw(\"no\")\n"
+        "    pyos.halt()\n"
+    )
+    with pytest.raises(TranspileError, match="solo se soportan"):
+        transpile(src)
+
+
+def test_string_vs_int_comparison_rejected():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    cmd = pyos.line()\n"
+        "    if cmd == 5:\n"
+        "        pyos.draw(\"no\")\n"
+        "    pyos.halt()\n"
+    )
+    with pytest.raises(TranspileError, match="no se puede comparar"):
+        transpile(src)
+
+
+def test_beep_and_random_int():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.beep(440, 100)\n"
+        "    r = pyos.random_int(10)\n"
+        "    pyos.draw(str(r))\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_beep(440, 100)" in c
+    assert "pyos_random_int(10)" in c
+
+
+def test_accented_string_maps_to_cp437():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.draw(\"informaci\u00f3n\")\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "\\242" in c   # 'ó' -> 0xA2 -> octal 242
+    assert "informaci\u00f3n".encode("utf-8") not in c.encode("utf-8")

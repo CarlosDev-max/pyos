@@ -12,12 +12,14 @@ estado) sin arrastrar todo el runtime de CPython.
 
 Subconjunto soportado (ver README.md para la lista completa y ejemplos):
   - Funciones top-level, sin closures ni clases
-  - Tipos: int, str (str solo como literal — no hay heap ni concatenación
-    dinámica todavía)
+  - Tipos: int, str (str como literal, como resultado de concatenar dos
+    str con '+', o de convertir un int con str(x))
   - if / elif / else, while, for x in range(...)
   - Operadores: + - * // % en enteros; comparaciones; and / or
+  - Comparación == / != entre strings (pyos_streq); + entre strings concatena
   - Llamadas a pyos.draw / pyos.clear / pyos.halt / pyos.reboot / pyos.log /
-    pyos.putc / pyos.log_char / pyos.readline / pyos.kbchar
+    pyos.putc / pyos.log_char / pyos.readline / pyos.kbchar / pyos.line /
+    pyos.beep / pyos.random_int
   - ord('x') como constante de tiempo de compilación (útil para comparar el
     código ASCII de teclas contra literales)
   - Llamadas a otras funciones definidas en el mismo archivo
@@ -33,6 +35,7 @@ en silencio o generar C incorrecto.
 from __future__ import annotations
 
 import ast
+import unicodedata
 from dataclasses import dataclass, field
 
 
@@ -43,16 +46,30 @@ class TranspileError(Exception):
         super().__init__(msg)
 
 
+# Español -> CP437 (la página de código que usa la VGA en modo texto).
+# Cubre los acentos y símbolos más comunes; lo que no está acá se resuelve
+# sacándole el acento o, si no se puede, con un '?'.
+_CP437_MAP = {
+    "á": 0xA0, "é": 0x82, "í": 0xA1, "ó": 0xA2, "ú": 0xA3,
+    "ñ": 0xA4, "Ñ": 0xA5, "ü": 0x81, "Ü": 0x9A,
+    "¿": 0xA8, "¡": 0xAD, "É": 0x90,
+}
+
+
 _RUNTIME_CALLS = {
-    "draw": "pyos_draw",
-    "clear": "pyos_clear",
-    "halt": "pyos_halt",
-    "log": "pyos_log",
-    "log_char": "pyos_log_char",
-    "putc": "pyos_putc",
-    "readline": "pyos_readline",
-    "kbchar": "pyos_kb_char",
-    "reboot": "pyos_reboot",
+    # nombre en pyos.* : (función real en C, tipo que devuelve)
+    "draw": ("pyos_draw", "int"),
+    "clear": ("pyos_clear", "int"),
+    "halt": ("pyos_halt", "int"),
+    "log": ("pyos_log", "int"),
+    "log_char": ("pyos_log_char", "int"),
+    "putc": ("pyos_putc", "int"),
+    "readline": ("pyos_readline", "int"),
+    "kbchar": ("pyos_kb_char", "int"),
+    "reboot": ("pyos_reboot", "int"),
+    "line": ("pyos_line", "str"),          # la última línea leída, como string
+    "beep": ("pyos_beep", "int"),          # pyos.beep(frecuencia_hz, ms)
+    "random_int": ("pyos_random_int", "int"),  # pyos.random_int(n) -> 0..n-1
 }
 
 
@@ -334,10 +351,12 @@ class Transpiler:
         if isinstance(node, ast.BinOp):
             l_c, l_t = self._emit_expr(node.left, scope)
             r_c, r_t = self._emit_expr(node.right, scope)
+            if l_t == "str" and r_t == "str" and isinstance(node.op, ast.Add):
+                return (f"pyos_concat({l_c}, {r_c})", "str")
             if l_t != "int" or r_t != "int":
                 raise TranspileError(
-                    "las operaciones aritméticas solo funcionan entre enteros "
-                    "(no hay concatenación de strings todavía)", node
+                    "las operaciones aritméticas solo funcionan entre enteros, "
+                    "salvo 'a + b' entre dos strings (concatenación)", node
                 )
             op = self._binop(node.op, node)
             return (f"({l_c} {op} {r_c})", "int")
@@ -370,12 +389,27 @@ class Transpiler:
                 )
             l_c, l_t = self._emit_expr(node.left, scope)
             r_c, r_t = self._emit_expr(node.comparators[0], scope)
+            op_type = type(node.ops[0])
+
+            if l_t == "str" or r_t == "str":
+                if l_t != "str" or r_t != "str":
+                    raise TranspileError(
+                        "no se puede comparar un string con un entero", node
+                    )
+                if op_type not in (ast.Eq, ast.NotEq):
+                    raise TranspileError(
+                        "entre strings solo se soportan '==' y '!=' (no hay "
+                        "orden alfabético todavía)", node
+                    )
+                call = f"pyos_streq({l_c}, {r_c})"
+                return (call if op_type is ast.Eq else f"(!{call})", "int")
+
             if l_t != "int" or r_t != "int":
                 raise TranspileError("las comparaciones son solo entre enteros", node)
             cop = {
                 ast.Lt: "<", ast.Gt: ">", ast.LtE: "<=", ast.GtE: ">=",
                 ast.Eq: "==", ast.NotEq: "!=",
-            }.get(type(node.ops[0]))
+            }.get(op_type)
             if cop is None:
                 raise TranspileError("operador de comparación no soportado", node)
             return (f"({l_c} {cop} {r_c})", "int")
@@ -398,16 +432,27 @@ class Transpiler:
                 )
             return (str(ord(arg.value)), "int")
 
+        if isinstance(node.func, ast.Name) and node.func.id == "str":
+            if len(node.args) != 1:
+                raise TranspileError("str() recibe exactamente un argumento", node)
+            c, t = self._emit_expr(node.args[0], scope)
+            if t == "str":
+                return (c, "str")  # ya es str, no hace falta convertir
+            if t != "int":
+                raise TranspileError("str() solo puede convertir enteros", node)
+            return (f"pyos_int_to_str({c})", "str")
+
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id == "pyos":
             fname = node.func.attr
             if fname not in _RUNTIME_CALLS:
                 raise TranspileError(f"pyos.{fname} no existe en el runtime", node)
+            c_name, ret_type = _RUNTIME_CALLS[fname]
             args_c = []
             for a in node.args:
                 c, _t = self._emit_expr(a, scope)
                 args_c.append(c)
-            return (f"{_RUNTIME_CALLS[fname]}({', '.join(args_c)})", "int")
+            return (f"{c_name}({', '.join(args_c)})", ret_type)
 
         if isinstance(node.func, ast.Name) and node.func.id in self._known_funcs:
             args_c = []
@@ -438,8 +483,35 @@ class Transpiler:
 
     @staticmethod
     def _c_string_literal(s: str) -> str:
-        escaped = (
-            s.replace("\\", "\\\\").replace('"', '\\"')
-             .replace("\n", "\\n").replace("\t", "\\t")
-        )
-        return f'"{escaped}"'
+        """Genera el literal de C, mapeando acentos a CP437 — la VGA en modo
+        texto no entiende UTF-8, y por defecto los bytes de un carácter
+        multi-byte se muestran como cuadraditos sueltos. Los caracteres
+        españoles más comunes se mapean 1:1 a su código CP437; cualquier
+        otro no-ASCII se pasa por NFKD para sacarle el acento, y si ni así
+        entra en ASCII, se reemplaza por '?'."""
+        out = ['"']
+        for ch in s:
+            if ch == "\\":
+                out.append("\\\\")
+            elif ch == '"':
+                out.append('\\"')
+            elif ch == "\n":
+                out.append("\\n")
+            elif ch == "\t":
+                out.append("\\t")
+            elif ord(ch) < 128:
+                out.append(ch)
+            else:
+                code = _CP437_MAP.get(ch)
+                if code is None:
+                    base = unicodedata.normalize("NFKD", ch)
+                    base = "".join(c for c in base if not unicodedata.combining(c))
+                    if base and ord(base[0]) < 128:
+                        out.append(base[0])
+                        continue
+                    code = ord("?")
+                out.append(f"\\{code:03o}")  # escape octal de 3 dígitos:
+                # evita la ambigüedad de \xHH cuando el próximo carácter del
+                # string también es un dígito hexadecimal
+        out.append('"')
+        return "".join(out)

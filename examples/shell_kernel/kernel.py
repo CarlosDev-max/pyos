@@ -1,8 +1,9 @@
-"""shell_kernel — MYOS v0.4: una shell interactiva real corriendo en bare metal.
+"""shell_kernel — MYOS v0.5: shell interactiva con strings dinámicos reales.
 
-Lee una línea del teclado PS/2 (via IRQ1, con echo en VGA), separa el comando
-de sus argumentos a mano (char por char, ya que el subconjunto de pyos no
-tiene strings dinámicos todavía) y ejecuta el comando en un bucle infinito.
+A partir de esta versión pyos tiene heap propio (pyos.line() devuelve la
+línea completa como string, comparable con == gracias a pyos_streq), así
+que los comandos se distinguen por comparación directa en vez de char por
+char como en la v0.4.
 
 Probalo sin compilar nada (corre bajo CPython normal, en tu terminal):
     pyos simulate examples/shell_kernel/kernel.py
@@ -18,92 +19,72 @@ import pyos
 def cmd_help():
     pyos.draw("help     - muestra esta ayuda\n")
     pyos.draw("clear    - limpia la pantalla\n")
-    pyos.draw("echo     - imprime el texto que le siga\n")
-    pyos.draw("info     - información del sistema\n")
+    pyos.draw("echo X   - imprime X\n")
+    pyos.draw("info     - informacion del sistema\n")
+    pyos.draw("beep     - hace sonar el PC speaker\n")
+    pyos.draw("random   - numero aleatorio entre 0 y 99\n")
     pyos.draw("halt     - detiene la CPU\n")
-    pyos.draw("reboot   - reinicia la máquina\n")
+    pyos.draw("reboot   - reinicia la maquina\n")
 
 
 def cmd_info():
-    pyos.draw("MYOS v0.4\n")
+    pyos.draw("MYOS v0.5\n")
     pyos.draw("CPU : x86 32-bit (i386+)\n")
     pyos.draw("RAM : 32 MB\n")
     pyos.draw("VGA : texto 80x25\n")
+    pyos.draw("Heap: 256 KiB (bump allocator)\n")
     pyos.draw("Disp: COM1 (log) y teclado PS/2 (IRQ1)\n")
-
-
-def cmd_echo(first, n):
-    # first = índice del primer char del argumento, n = largo de la línea
-    i = first
-    while i < n:
-        pyos.putc(pyos.kbchar(i))
-        i = i + 1
-    pyos.putc(10)
 
 
 @pyos.entry
 def main():
     pyos.clear()
-    pyos.draw("MYOS Interactive Shell v0.4\n")
+    pyos.draw("MYOS Interactive Shell v0.5\n")
     pyos.draw("Escriba 'help' para ver los comandos.\n\n")
 
     while True:
         pyos.draw("MYOS> ")
         n = pyos.readline()
-
         if n < 1:
             continue
 
-        # separar el comando de sus argumentos: el primer "token" termina en
-        # el primer espacio (o en el final de la línea)
-        k = 0
-        while k < n and pyos.kbchar(k) != ord(' '):
-            k = k + 1
+        cmd = pyos.line()
 
-        if k == 4 \
-                and pyos.kbchar(0) == ord('h') \
-                and pyos.kbchar(1) == ord('e') \
-                and pyos.kbchar(2) == ord('l') \
-                and pyos.kbchar(3) == ord('p'):
+        if cmd == "help":
             cmd_help()
-        elif k == 5 \
-                and pyos.kbchar(0) == ord('c') \
-                and pyos.kbchar(1) == ord('l') \
-                and pyos.kbchar(2) == ord('e') \
-                and pyos.kbchar(3) == ord('a') \
-                and pyos.kbchar(4) == ord('r'):
+        elif cmd == "clear":
             pyos.clear()
-            pyos.draw("MYOS Interactive Shell v0.4\n")
-        elif k == 4 \
-                and pyos.kbchar(0) == ord('e') \
-                and pyos.kbchar(1) == ord('c') \
-                and pyos.kbchar(2) == ord('h') \
-                and pyos.kbchar(3) == ord('o'):
-            if k < n:
-                cmd_echo(k + 1, n)
-            else:
-                pyos.putc(10)
-        elif k == 4 \
-                and pyos.kbchar(0) == ord('i') \
-                and pyos.kbchar(1) == ord('n') \
-                and pyos.kbchar(2) == ord('f') \
-                and pyos.kbchar(3) == ord('o'):
+            pyos.draw("MYOS Interactive Shell v0.5\n")
+        elif cmd == "info":
             cmd_info()
-        elif k == 4 \
-                and pyos.kbchar(0) == ord('h') \
-                and pyos.kbchar(1) == ord('a') \
-                and pyos.kbchar(2) == ord('l') \
-                and pyos.kbchar(3) == ord('t'):
+        elif cmd == "beep":
+            pyos.draw("beep!\n")
+            pyos.beep(880, 150)
+        elif cmd == "random":
+            r = pyos.random_int(100)
+            pyos.draw("numero: " + str(r) + "\n")
+        elif cmd == "halt":
             pyos.draw("Deteniendo la CPU.\n")
             pyos.halt()
-        elif k == 6 \
-                and pyos.kbchar(0) == ord('r') \
-                and pyos.kbchar(1) == ord('e') \
-                and pyos.kbchar(2) == ord('b') \
-                and pyos.kbchar(3) == ord('o') \
-                and pyos.kbchar(4) == ord('o') \
-                and pyos.kbchar(5) == ord('t'):
+        elif cmd == "reboot":
             pyos.draw("Reiniciando...\n")
             pyos.reboot()
         else:
-            pyos.draw("comando desconocido: use 'help'\n")
+            # 'echo algo' — como no hay slicing de strings todavía, el
+            # texto a repetir se arma leyendo char por char desde donde
+            # termina la palabra 'echo '
+            k = 0
+            while k < n and pyos.kbchar(k) != ord(" "):
+                k = k + 1
+            is_echo = (k == 4 and pyos.kbchar(0) == ord("e")
+                       and pyos.kbchar(1) == ord("c")
+                       and pyos.kbchar(2) == ord("h")
+                       and pyos.kbchar(3) == ord("o"))
+            if is_echo:
+                i = k + 1
+                while i < n:
+                    pyos.putc(pyos.kbchar(i))
+                    i = i + 1
+                pyos.putc(10)
+            else:
+                pyos.draw("comando desconocido: use 'help'\n")

@@ -300,6 +300,13 @@ int pyos_kb_char(int i) {
     return (unsigned char)kb_line[i];
 }
 
+/* Devuelve la última línea leída por pyos_readline() como string
+ * null-terminated real — esto es lo que le permite al Python del usuario
+ * comparar comandos con == en vez de carácter por carácter. */
+const char* pyos_line(void) {
+    return kb_line;
+}
+
 /* ---------- Control de CPU ---------- */
 void pyos_halt(void) {
     __asm__ volatile ("cli");

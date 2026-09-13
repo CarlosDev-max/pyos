@@ -80,8 +80,9 @@ qemu-system-i386 -cdrom hello.iso
 pyos/
   __init__.py     → API pública (pyos.entry, pyos.draw, pyos.clear, pyos.log,
                     pyos.halt, pyos.readline, pyos.putc, pyos.kbchar,
-                    pyos.log_char). También corren bajo CPython normal, para
-                    el modo simulación.
+                    pyos.log_char, pyos.line, pyos.beep, pyos.random_int).
+                    También corren bajo CPython normal, para el modo
+                    simulación.
   transpiler.py   → AST de Python → C (subconjunto restringido, ver abajo)
   build.py        → orquesta nasm/gcc/ld/grub-mkrescue sobre el C generado
   cli.py          → `pyos build|simulate|doctor`
@@ -92,21 +93,26 @@ pyos/
     runtime.c     → el "libc" del kernel: IDT x86 de 32 bits, remapeo del
                     PIC 8259, driver de teclado PS/2 (IRQ1, scancode set 1,
                     shift/caps lock), buffer de línea estático sin malloc,
-                    VGA texto (0xB8000) y puerto serie (COM1). Estas son las
-                    únicas funciones que existen en el sistema.
+                    VGA texto (0xB8000) y puerto serie (COM1).
+    heap.c        → heap propio (bump allocator, 256 KiB): concatenación de
+                    strings, conversión int→str, comparación de strings
+    speaker.c     → pyos.beep() real por el PC speaker (PIT canal 2)
+    rng.c         → pyos.random_int() — LCG sembrado con RDTSC
     pyos_runtime.h
 examples/
   hello_kernel/    → ejemplo real, probado con QEMU
   keyboard_kernel/ → ejemplo real de entrada por teclado PS/2, probado con QEMU
-  shell_kernel/    → una shell interactiva completa (help, clear, echo, info,
-                     halt, reboot) corriendo sobre el teclado PS/2
+  shell_kernel/    → shell interactiva completa (help, clear, echo, info,
+                     beep, random, halt, reboot) con comandos comparados
+                     como strings de verdad (pyos.line() + ==)
 ```
 
 Pipeline de `pyos build`:
 
 1. `transpiler.py` parsea tu `.py` con `ast` y genera `generated.c`
 2. `nasm` ensambla `boot.asm` → `boot.o`
-3. `gcc -m32 -ffreestanding` compila `runtime.c` + `generated.c` → objetos
+3. `gcc -m32 -ffreestanding` compila `runtime.c`, `heap.c`, `speaker.c`,
+   `rng.c` y `generated.c` → objetos
 4. `gcc -T linker.ld -nostdlib` linkea todo → `kernel.elf` (multiboot válido,
    verificado con `grub-file --is-x86-multiboot`)
 5. Se arma un árbol `isoroot/boot/grub/grub.cfg` apuntando al kernel
@@ -120,33 +126,29 @@ silencio:
 
 - Funciones a nivel de módulo (nada de clases ni closures)
 - Una función marcada `@pyos.entry`, sin argumentos — es el punto de arranque
-- Tipos: `int` y `str` (los strings solo como literales — todavía no hay
-  heap ni concatenación dinámica de strings)
-- `if` / `elif` / `else`, `while`, `for x in range(...)`
-- Operadores: `+ - * // %`, comparaciones, `and` / `or`, `not`
-- Llamadas a `pyos.draw / pyos.clear / pyos.halt / pyos.reboot / pyos.log /
-  pyos.log_char / pyos.putc / pyos.readline / pyos.kbchar`, y a `ord('x')`
-  como constante de tiempo de compilación (para comparar el ASCII de teclas)
+- Tipos: `int` y `str`. Los `str` pueden ser literales, el resultado de
+  concatenar dos `str` con `+`, o de convertir un `int` con `str(x)`
+- `if` / `elif` / `else`, `while`, `for x in range(...)`, `break`, `continue`
+- Operadores en `int`: `+ - * // %`, comparaciones, `and` / `or`, `not`
+- En `str`: `+` concatena (heap propio), `==`/`!=` comparan de verdad
+  (`pyos_streq`) — no hay `<`/`>` entre strings todavía
+- `ord('x')` como constante de compilación; `str(x)` convierte int→str
+- Llamadas a `pyos.*`: `draw, clear, halt, reboot, log, log_char, putc,
+  readline, kbchar, line, beep, random_int`
 - Llamadas entre funciones definidas en el mismo archivo (solo con `int`)
 - Docstrings de módulo y de función (se ignoran, no rompen la compilación)
+- Los acentos españoles comunes (á é í ó ú ñ Ñ ü Ü ¿ ¡) se mapean a CP437
+  automáticamente para que se vean bien en la VGA
 
-No soportado (todavía): imports que no sean `pyos`, f-strings, listas/dicts,
-excepciones, generadores, clases, recursión con tipos mixtos, concatenación
-de strings en runtime.
+No soportado (todavía): imports que no sean `pyos`, f-strings, slicing de
+strings, listas/dicts, excepciones, generadores, clases, recursión con tipos
+mixtos, `free()` de memoria (el heap crece hasta 256 KiB y no se libera).
 
 ## Roadmap
 
-- [ ] CLI: plantillas (`pyos new mi_os`) para arrancar un proyecto
-- [x] Driver de teclado (IRQ1, puerto 0x60, scancode set 1) + entrada de
-  línea (`pyos.readline`, buffer estático sin malloc)
-- [x] Shell interactiva real sobre el teclado
-- [ ] Heap básico (`malloc`/`free` mínimo) para permitir strings dinámicos
-- [ ] Multiboot2 completo (hoy usamos Multiboot1 por simplicidad/compatibilidad)
-- [ ] Backend alternativo: `pyos build --target=linux-init` para generar un
-  rootfs Linux mínimo con tu código Python como PID 1 (para quien no
-  necesite ir a bare metal)
-- [ ] Explorar embeber un runtime tipo MicroPython para soportar un
-  subconjunto de Python más amplio sin pasar por transpilación C
+Ver **[ROADMAP.md](ROADMAP.md)** — organizado en fases (arranque →
+interrupciones/teclado → heap/strings → memoria real → filesystem →
+multitarea → red → pulido), cada una con lo que ya funciona y lo que sigue.
 
 ## Licencia
 
