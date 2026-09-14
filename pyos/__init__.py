@@ -34,7 +34,7 @@ __all__ = [
     "entry", "draw", "clear", "halt", "reboot", "log", "log_char",
     "putc", "putdec", "readline", "kbchar", "line", "substr", "beep",
     "random_int", "free", "strdup", "heap_total", "heap_used", "heap_free",
-    "fsinit", "fopen", "fwrite", "fread", "fclose", "fexists", "fdel",
+    "fsinit", "fs_init", "fopen", "fwrite", "fread", "fclose", "fexists", "fdel",
     "fls", "fsize", "iso_status", "iso_ls", "iso_read", "iso_free",
     "spawn", "exit_task", "sleep", "ps", "uptime", "ticks",
     # Tanda A — matemática
@@ -61,7 +61,7 @@ __all__ = [
     "cpu_has_fpu", "kernel_base", "iso_count", "version_string",
     # Tanda F — misceláneos
     "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
-    "fs_mounted", "fopen_append",
+    "fs_mounted", "fopen_append", "fs_status",
 ]
 
 _last_readline = ""
@@ -255,6 +255,11 @@ def fsinit() -> int:
     return 1
 
 
+def fs_init() -> int:
+    """Alias de fsinit() con el nombre consistente con fs_status/fs_mounted."""
+    return fsinit()
+
+
 def fopen(name: str, mode: int) -> int:
     """Abre un archivo. mode 0 = lectura, 1 = escritura (crea o trunca).
     Devuelve un fd (entero), o -1 si falla."""
@@ -310,9 +315,18 @@ def fdel(name: str) -> int:
 
 
 def fls() -> int:
-    """Cantidad de archivos en el FS."""
+    """Lista los archivos por pantalla (como el kernel real) y devuelve
+    cuántos hay."""
     global _fs_files
+    for name, h in _fs_files.items():
+        sys.stdout.write(f"{name}  ({len(h['data'])} B)\n")
     return len(_fs_files)
+
+
+def fs_status() -> int:
+    """Imprime el estado del filesystem simulado (como pyos_fs_status)."""
+    sys.stdout.write("FS: MYOSFS v1 (simulado), montado\n")
+    return 0
 
 
 def fsize(fd: int) -> int:

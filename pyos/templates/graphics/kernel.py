@@ -25,16 +25,14 @@ def main():
         x = x + 6
     pyos.set_color(11, 0)
     pyos.box(6, 21, 40, 23, 35)
-    pyos.gotoxy(8, 22)
-    pyos.draw("tiempo encendido: ")
     t = 0
     while t < 8:
         pyos.gotoxy(8, 22)
-        pyos.draw(str(pyos.seconds()) + " s  ")
+        pyos.draw("tiempo encendido: " + str(pyos.seconds()) + " s  ")
         pyos.sleep(250)
         t = t + 1
     pyos.gotoxy(8, 22)
-    pyos.draw("listo.             ")
+    pyos.draw("listo.                          ")
     pyos.set_color(15, 0)
     pyos.gotoxy(5, 23)
     pyos.draw("Presiona una tecla para terminar.")

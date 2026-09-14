@@ -80,7 +80,8 @@ _RUNTIME_CALLS = {
     "heap_free": ("pyos_heap_free", "int"),
     # Fase 4 — filesystem (myfs.c) + strings
     "substr": ("pyos_substr", "str"),     # pyos.substr(start, len)
-    "fsinit": ("pyos_fs_init", "int"),    # monta (o formatea) el disco
+    "fsinit": ("pyos_fs_init", "int"),    # alias histórico; usar fs_init()
+    "fs_init": ("pyos_fs_init", "int"),    # monta (o formatea) el disco
     "fopen": ("pyos_fopen", "int"),       # pyos.fopen(nombre, 0|1)
     "fwrite": ("pyos_fwrite", "int"),     # pyos.fwrite(fd, "texto")
     "fread": ("pyos_fread", "str"),       # pyos.fread(fd, max) -> str
@@ -89,6 +90,7 @@ _RUNTIME_CALLS = {
     "fdel": ("pyos_fdel", "int"),
     "fls": ("pyos_fls", "int"),
     "fsize": ("pyos_fsize", "int"),
+    "fs_status": ("pyos_fs_status", "int"),  # imprime el estado del FS montado
     # Fase 4 — lector del CD booteado (iso9660.c)
     "iso_status": ("pyos_iso_status", "int"),
     "iso_ls": ("pyos_iso_ls", "int"),

@@ -314,6 +314,9 @@ int pyos_fwrite(int fd, const char* text) {
     if (start < 0) {
         myfs_log("myfs: sin corrida libre para el archivo\n");
         ino.start = 0; ino.nblocks = 0; ino.size = 0;
+        fs_inode_store(&ino, fs_open[fd].inode); /* persistir el reset: si no,
+            el inodo en disco queda apuntando a los bloques que fs_free_run()
+            ya marcó libres unas líneas arriba — corrupción latente */
         return -1;
     }
 
