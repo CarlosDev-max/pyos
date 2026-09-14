@@ -70,12 +70,16 @@ qemu-system-i386 -cdrom hello.iso
 - `pyos new directorio [-t PLANTILLA] [--name NOMBRE]` — crea un proyecto nuevo
   desde una plantilla. Plantillas: `basic` (hello world), `math`, `strings`,
   `shell`, `multitask` y `graphics`.
-- `pyos build archivo.py -o salida.iso` — transpila, compila, linkea y genera
-  la ISO booteable real.
+- `pyos build archivo.py -o salida.iso [--target iso|linux-init]` — transpila,
+  compila y linkea. Con `--target iso` (default) genera la ISO booteable
+  bare-metal real; con `--target linux-init` genera en cambio un binario
+  estático para usar como `/init` de Linux (PID 1) — la alternativa para
+  quien no necesite ir a bare metal.
 - `pyos simulate archivo.py` — corre la lógica bajo CPython normal, sin
   compilar nada (rápido, para iterar).
 - `pyos doctor` — chequea que el toolchain (gcc, nasm, grub-mkrescue, xorriso)
   esté instalado.
+- `pyos help` (o `pyos` sin argumentos) — muestra esta ayuda.
 
 ## Arquitectura
 

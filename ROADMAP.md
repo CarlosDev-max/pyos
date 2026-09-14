@@ -56,6 +56,20 @@ multitarea sin poder reservar y liberar memoria por proceso).
 - GDT plana propia (cs=0x08/ds=0x10) instalada en `boot.asm` — el iret de la
   multitarea necesita selectores predecibles
 
+## ✅ Extras (fuera de la numeración de fases, ya completos)
+- **Biblioteca estándar** (~90 funciones nuevas) sobre lo que ya daban las
+  fases 0-5: `math.c` (matemática entera: potencia, factorial, fibonacci,
+  primos, gcd/lcm, etc.), `str2.c` (manipulación de strings sobre el heap:
+  upper/lower/trim/repeat/pad/replace, parseo, búsqueda), `vga2.c`
+  (dibujo directo sobre el framebuffer: gotoxy, color, líneas, cajas,
+  rectángulos) y `misc.c` (info de la máquina: CPUID, RAM, tiempo)
+- **`pyos new`**: 5 plantillas listas para arrancar un proyecto
+  (`basic`, `math`, `strings`, `shell`, `multitask`, `graphics`)
+- **Backend `--target=linux-init`**: además de `iso` (bare metal puro),
+  `pyos build` puede generar un binario estático para usar como `/init`
+  de Linux (PID 1) — la alternativa "más fácil" que se dejó anotada desde
+  el principio del proyecto, para quien no necesite ir a bare metal
+
 ## 🔜 Fase 6 — Red (opcional/ambicioso)
 - Driver de una tarjeta de red simple (rtl8139 o virtio-net, bien soportadas
   por QEMU para poder seguir probando sin hardware real)
