@@ -22,6 +22,7 @@
 extern void pyos_log(const char* s);
 extern void pyos_draw(const char* s);
 extern void pyos_putdec(uint32_t n);
+extern void pyos_log_dec(uint32_t n);
 extern void* pyos_alloc(uint32_t size);
 extern void pyos_free(void* p);
 
@@ -216,7 +217,7 @@ void pyos_spawn(const char* name, proc_func fn) {
     pyos_log("proc: spawned '");
     pyos_log(procs[slot].name);
     pyos_log("' en slot ");
-    pyos_putdec((uint32_t)slot);
+    pyos_log_dec((uint32_t)slot);
     pyos_log("\n");
 }
 

@@ -158,6 +158,19 @@ static void serial_hex(uint32_t v) {
     }
 }
 
+/* Decimal, solo por el puerto serie — a diferencia de pyos_putdec (que
+ * escribe en la VGA), esto es para logs de diagnóstico internos que no
+ * deben tocar la pantalla del usuario. */
+void pyos_log_dec(uint32_t n) {
+    char buf[12];
+    int i = 12;
+    do {
+        buf[--i] = (char)('0' + (n % 10));
+        n /= 10;
+    } while (n);
+    while (i < 12) pyos_log_char(buf[i++]);
+}
+
 /* ---------- IDT (32 bits, 256 vectores) ---------- */
 struct idt_entry {
     uint16_t base_lo;

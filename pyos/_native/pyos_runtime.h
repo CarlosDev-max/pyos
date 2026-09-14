@@ -12,6 +12,7 @@ void pyos_putc(char c);
 void pyos_draw(const char* s);
 void pyos_log(const char* s);
 void pyos_log_char(char c);
+void pyos_log_dec(uint32_t n); /* decimal solo por serie, no toca la VGA */
 void pyos_putdec(uint32_t n);
 void pyos_halt(void);
 void pyos_reboot(void);
