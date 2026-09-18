@@ -193,4 +193,12 @@ int pyos_tolower_char(int c);
 int pyos_is_digit(int c);                       /* 0/1 */
 int pyos_is_alpha(int c);                       /* 0/1 */
 
+/* net.c + rtl8139.c + pci.c — Fase 6: red (rtl8139 + ARP + IP + ICMP) */
+int pyos_net_init(void);                        /* busca la NIC por PCI e inicializa */
+int pyos_net_ready(void);                       /* 1 si net_init tuvo éxito */
+void pyos_net_status(void);                     /* imprime IP/MAC actuales */
+const char* pyos_my_ip(void);                   /* "10.0.2.15" (alocado) */
+int pyos_scan(void);                            /* barrido ARP de la /24 local */
+int pyos_ping(const char* ip);                  /* ICMP echo real, 1=respondio */
+
 #endif

@@ -91,6 +91,14 @@ _RUNTIME_CALLS = {
     "fls": ("pyos_fls", "int"),
     "fsize": ("pyos_fsize", "int"),
     "fs_status": ("pyos_fs_status", "int"),  # imprime el estado del FS montado
+
+    # Fase 6: red (rtl8139 + ARP + IP + ICMP)
+    "net_init": ("pyos_net_init", "int"),
+    "net_ready": ("pyos_net_ready", "int"),
+    "net_status": ("pyos_net_status", "int"),
+    "my_ip": ("pyos_my_ip", "str"),
+    "scan": ("pyos_scan", "int"),          # barrido ARP de la /24 local
+    "ping": ("pyos_ping", "int"),          # pyos.ping("10.0.2.2") -> 1/0
     # Fase 4 — lector del CD booteado (iso9660.c)
     "iso_status": ("pyos_iso_status", "int"),
     "iso_ls": ("pyos_iso_ls", "int"),

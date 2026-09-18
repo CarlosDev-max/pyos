@@ -70,10 +70,20 @@ multitarea sin poder reservar y liberar memoria por proceso).
   de Linux (PID 1) — la alternativa "más fácil" que se dejó anotada desde
   el principio del proyecto, para quien no necesite ir a bare metal
 
-## 🔜 Fase 6 — Red (opcional/ambicioso)
-- Driver de una tarjeta de red simple (rtl8139 o virtio-net, bien soportadas
-  por QEMU para poder seguir probando sin hardware real)
-- Pila TCP/IP mínima (ARP + IP + UDP alcanza para muchas demos)
+## ✅ Fase 6 — Red (completa)
+- Driver real de rtl8139 (la NIC que emula QEMU) sobre PCI propio
+  (`pci.c`, `rtl8139.c`): TX con 4 descriptores round-robin, RX por
+  polling sobre el anillo DMA — sin interrupciones, alcanza de sobra
+- Ethernet + ARP + IP + ICMP mínimos (`net.c`), con checksum real
+- `pyos.net_init()`, `pyos.net_status()`, `pyos.my_ip()`
+- `pyos.scan()`: barrido ARP real de la /24 local — descubre vecinos de
+  verdad (probado con QEMU: encuentra el gateway y el DNS de `-netdev user`)
+- `pyos.ping(ip)`: ICMP echo real, con auto-respuesta si alguien de la red
+  hace ping a pyos
+- Probado con captura de paquetes real (pcap vía QEMU): 257 paquetes
+  reales en un scan completo, no simulados
+- Pendiente para una vuelta futura: DHCP (mucho más complejo a nivel de
+  paquete que ARP+IP+ICMP) y UDP/TCP
 
 ## 🔜 Fase 7 — Pulido para "OS real"
 - Empaquetar un instalador (copiar la ISO a un disco real, no solo bootear

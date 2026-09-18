@@ -62,6 +62,7 @@ __all__ = [
     # Tanda F — misceláneos
     "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
     "fs_mounted", "fopen_append", "fs_status",
+    "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
 ]
 
 _last_readline = ""
@@ -327,6 +328,56 @@ def fs_status() -> int:
     """Imprime el estado del filesystem simulado (como pyos_fs_status)."""
     sys.stdout.write("FS: MYOSFS v1 (simulado), montado\n")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Fase 6 — red. En simulación no hay tarjeta de red ni cables de verdad:
+# net_init() siempre "funciona", y scan()/ping() devuelven una respuesta de
+# juguete fija — alcanza para probar la lógica del kernel.py (qué hacer con
+# los resultados) sin necesitar QEMU con -netdev.
+# ---------------------------------------------------------------------------
+_net_ready = False
+
+
+def net_init() -> int:
+    """Simula encontrar la NIC. En el kernel real busca un rtl8139 por PCI."""
+    global _net_ready
+    _net_ready = True
+    sys.stderr.write("[sim] net_init: no hay NIC real en simulación\n")
+    return 1
+
+
+def net_ready() -> int:
+    return 1 if _net_ready else 0
+
+
+def net_status() -> int:
+    if not _net_ready:
+        sys.stdout.write("NET: sin inicializar (llama a pyos.net_init())\n")
+    else:
+        sys.stdout.write("NET: simulado. IP=10.0.2.15  MAC=52:54:00:12:34:56\n")
+    return 0
+
+
+def my_ip() -> str:
+    return "10.0.2.15"
+
+
+def scan() -> int:
+    """Simula un barrido ARP: siempre devuelve un único vecino de juguete
+    (el gateway típico de la red 'user' de QEMU)."""
+    if not _net_ready:
+        return 0
+    sys.stdout.write("host 10.0.2.2  mac 52:55:0a:00:02:02\n")
+    return 1
+
+
+def ping(ip: str) -> int:
+    """Simula un ping: siempre 'responde' salvo que la red no esté lista."""
+    if not _net_ready:
+        return 0
+    sys.stdout.write(f"pong de {ip} en ~5 ms (simulado)\n")
+    return 1
 
 
 def fsize(fd: int) -> int:
