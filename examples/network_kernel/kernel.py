@@ -40,5 +40,12 @@ def main():
     pyos.draw("\nprobando ping al gateway (10.0.2.2)...\n")
     pyos.ping("10.0.2.2")
 
+    pyos.draw("\nresolviendo un nombre por DNS real (10.0.2.3)...\n")
+    ip = pyos.resolve("example.com")
+    if ip == "":
+        pyos.draw("no se pudo resolver (sin salida a internet desde este QEMU)\n")
+    else:
+        pyos.draw("example.com -> " + ip + "\n")
+
     pyos.draw("\nlisto. pyos ya tiene red real.\n")
     pyos.halt()

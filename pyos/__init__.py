@@ -63,6 +63,8 @@ __all__ = [
     "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
     "fs_mounted", "fopen_append", "fs_status",
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
+    "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_send",
+    "tcp_recv", "tcp_close", "http_get",
 ]
 
 _last_readline = ""
@@ -378,6 +380,70 @@ def ping(ip: str) -> int:
         return 0
     sys.stdout.write(f"pong de {ip} en ~5 ms (simulado)\n")
     return 1
+
+
+def udp_send(ip: str, port: int, text: str) -> int:
+    """Simula mandar un datagrama UDP. No hay red real: no llega a ningún lado."""
+    if not _net_ready:
+        return 0
+    sys.stderr.write(f"[sim] udp_send a {ip}:{port}: {text!r}\n")
+    return 1
+
+
+def udp_recv(max_ticks: int) -> str:
+    """Simula esperar un datagrama UDP. Sin red real, nunca llega nada."""
+    sys.stderr.write(f"[sim] udp_recv (timeout simulado, {max_ticks} ticks): nada\n")
+    return ""
+
+
+def resolve(host: str) -> str:
+    """Simula una resolución DNS. Sin red real, devuelve una IP de juguete
+    fija (no necesariamente la real del host pedido)."""
+    if not _net_ready:
+        return ""
+    sys.stderr.write(f"[sim] resolve({host!r}): IP de juguete\n")
+    return "93.184.216.34"
+
+
+_tcp_connected = False
+
+
+def tcp_connect(ip: str, port: int) -> int:
+    global _tcp_connected
+    if not _net_ready:
+        return 0
+    sys.stderr.write(f"[sim] tcp_connect a {ip}:{port}\n")
+    _tcp_connected = True
+    return 1
+
+
+def tcp_send(text: str) -> int:
+    if not _tcp_connected:
+        return 0
+    sys.stderr.write(f"[sim] tcp_send: {text!r}\n")
+    return len(text)
+
+
+def tcp_recv(max_ticks: int) -> str:
+    if not _tcp_connected:
+        return ""
+    sys.stderr.write(f"[sim] tcp_recv (timeout simulado, {max_ticks} ticks)\n")
+    return "HTTP/1.0 200 OK\r\n\r\n<html>(simulado, sin red real)</html>"
+
+
+def tcp_close() -> int:
+    global _tcp_connected
+    _tcp_connected = False
+    return 0
+
+
+def http_get(host: str, path: str) -> str:
+    """Simula un GET HTTP completo (resolve + tcp_connect + send + recv +
+    close). Sin red real, devuelve una respuesta de juguete fija."""
+    if not _net_ready:
+        return ""
+    sys.stderr.write(f"[sim] http_get {host}{path}\n")
+    return "HTTP/1.0 200 OK\r\n\r\n<html>(simulado, sin red real)</html>"
 
 
 def fsize(fd: int) -> int:

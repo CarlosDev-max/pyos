@@ -201,4 +201,16 @@ const char* pyos_my_ip(void);                   /* "10.0.2.15" (alocado) */
 int pyos_scan(void);                            /* barrido ARP de la /24 local */
 int pyos_ping(const char* ip);                  /* ICMP echo real, 1=respondio */
 
+/* udp.c — UDP genérico + DNS real */
+int pyos_udp_send(const char* ip, int port, const char* text);
+const char* pyos_udp_recv(int max_ticks);       /* "" si no llego nada (buffer estatico) */
+const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (buffer estatico) */
+
+/* tcp.c — cliente TCP minimo + HTTP GET */
+int pyos_tcp_connect(const char* ip, int port);
+int pyos_tcp_send(const char* text);
+const char* pyos_tcp_recv(int max_ticks);       /* buffer estatico, se pisa en la proxima llamada */
+void pyos_tcp_close(void);
+const char* pyos_http_get(const char* host, const char* path); /* buffer estatico */
+
 #endif

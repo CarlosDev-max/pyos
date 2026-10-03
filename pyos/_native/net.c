@@ -7,9 +7,9 @@
  * funciona sin tocar nada. Con `-netdev tap` o un bridge a una red real,
  * ajustar MY_IP a algo válido en esa red.
  *
- * No hay DHCP (mucho más complejo que ARP+IP+ICMP a nivel de paquete) ni
- * TCP/UDP todavía — eso queda para una vuelta futura de esta fase. Lo que
- * sí hay es 100% real: se ve con Wireshark en la interfaz de QEMU.
+ * Segunda vuelta de esta fase: además de ARP+ICMP ahora comparte la
+ * infraestructura de armado de paquetes IP (net_send_ip) y el checksum
+ * con pseudo-header (net_l4_checksum) con udp.c y tcp.c.
  */
 #include <stdint.h>
 #include <stddef.h>
@@ -47,15 +47,30 @@ static uint16_t ip_checksum(const void* data, int len) {
     return (uint16_t)~sum;
 }
 
+/* checksum con pseudo-header (src ip + dst ip + protocolo + longitud),
+ * el que exigen UDP y TCP. Compartido entre udp.c y tcp.c. */
+uint16_t net_l4_checksum(const uint8_t src_ip[4], const uint8_t dst_ip[4],
+                          uint8_t proto, const uint8_t* l4, int l4len) {
+    static uint8_t tmp[12 + 1500];
+    if (l4len > 1500) l4len = 1500;
+    for (int i = 0; i < 4; i++) tmp[i] = src_ip[i];
+    for (int i = 0; i < 4; i++) tmp[4 + i] = dst_ip[i];
+    tmp[8] = 0;
+    tmp[9] = proto;
+    wr16(tmp + 10, (uint16_t)l4len);
+    for (int i = 0; i < l4len; i++) tmp[12 + i] = l4[i];
+    return ip_checksum(tmp, 12 + l4len);
+}
+
 static int ip_eq(const uint8_t a[4], const uint8_t b[4]) {
     return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
 }
 
-static void draw_ip(const uint8_t ip[4]) {
+void draw_ip(const uint8_t ip[4]) {
     static const char digits[] = "0123456789";
-    char buf[4]; 
+    char buf[4];
     for (int k = 0; k < 4; k++) {
-        int v = ip[k], i = 3;
+        int v = ip[k];
         char tmp[4];
         int n = 0;
         if (v == 0) tmp[n++] = '0';
@@ -65,11 +80,10 @@ static void draw_ip(const uint8_t ip[4]) {
         buf[j] = 0;
         pyos_draw(buf);
         if (k < 3) pyos_draw(".");
-        (void)i;
     }
 }
 
-static void draw_mac(const uint8_t mac[6]) {
+void draw_mac(const uint8_t mac[6]) {
     static const char hex[] = "0123456789abcdef";
     char buf[3] = {0, 0, 0};
     for (int k = 0; k < 6; k++) {
@@ -101,8 +115,8 @@ static void arp_cache_add(const uint8_t ip[4], const uint8_t mac[6]) {
     }
 }
 
-static void eth_send(const uint8_t dst_mac[6], uint16_t ethertype,
-                      const uint8_t* payload, int plen) {
+void eth_send(const uint8_t dst_mac[6], uint16_t ethertype,
+              const uint8_t* payload, int plen) {
     uint8_t frame[1514];
     for (int i = 0; i < 6; i++) frame[i] = dst_mac[i];
     for (int i = 0; i < 6; i++) frame[6 + i] = my_mac[i];
@@ -132,25 +146,39 @@ static void arp_send(uint16_t opcode, const uint8_t dst_mac[6], const uint8_t ds
 
 static uint16_t ip_id_counter = 1;
 
-static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
-                       uint8_t type, uint16_t ident, uint16_t seq,
-                       const uint8_t* data, int dlen) {
-    uint8_t pkt[20 + 8 + 32];
-    if (dlen > 32) dlen = 32;
+/* Arma el header IPv4 (20 bytes, sin opciones) y manda el paquete completo
+ * por Ethernet. Lo comparten ICMP, UDP y TCP — cada uno solo arma su propio
+ * payload de capa 4 y llama acá. */
+void net_send_ip(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
+                  uint8_t proto, const uint8_t* payload, int plen) {
+    uint8_t pkt[20 + 1500];
+    if (plen > 1500) plen = 1500;
 
     uint8_t* ip = pkt;
-    ip[0] = 0x45; ip[1] = 0; /* IPv4, header 20B, sin DSCP */
-    wr16(ip + 2, (uint16_t)(20 + 8 + dlen));
+    ip[0] = 0x45; ip[1] = 0;
+    wr16(ip + 2, (uint16_t)(20 + plen));
     wr16(ip + 4, ip_id_counter++);
-    wr16(ip + 6, 0);         /* sin fragmentar */
-    ip[8] = 64;              /* TTL */
-    ip[9] = 1;               /* protocolo ICMP */
-    wr16(ip + 10, 0);        /* checksum, se calcula abajo */
+    wr16(ip + 6, 0);
+    ip[8] = 64;    /* TTL */
+    ip[9] = proto;
+    wr16(ip + 10, 0);
     for (int i = 0; i < 4; i++) ip[12 + i] = my_ip[i];
     for (int i = 0; i < 4; i++) ip[16 + i] = dst_ip[i];
     wr16(ip + 10, ip_checksum(ip, 20));
 
-    uint8_t* icmp = pkt + 20;
+    for (int i = 0; i < plen; i++) pkt[20 + i] = payload[i];
+    eth_send(dst_mac, ET_IP, pkt, 20 + plen);
+}
+
+void net_get_my_mac(uint8_t out[6]) { for (int i = 0; i < 6; i++) out[i] = my_mac[i]; }
+void net_get_my_ip(uint8_t out[4])  { for (int i = 0; i < 4; i++) out[i] = my_ip[i]; }
+
+static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
+                       uint8_t type, uint16_t ident, uint16_t seq,
+                       const uint8_t* data, int dlen) {
+    uint8_t icmp[8 + 32];
+    if (dlen > 32) dlen = 32;
+
     icmp[0] = type; icmp[1] = 0; /* code */
     wr16(icmp + 2, 0);           /* checksum, se calcula abajo */
     wr16(icmp + 4, ident);
@@ -158,7 +186,7 @@ static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
     for (int i = 0; i < dlen; i++) icmp[8 + i] = data[i];
     wr16(icmp + 2, ip_checksum(icmp, 8 + dlen));
 
-    eth_send(dst_mac, ET_IP, pkt, 20 + 8 + dlen);
+    net_send_ip(dst_ip, dst_mac, 1, icmp, 8 + dlen);
 }
 
 /* ------------------------- despacho de lo que llega ----------------------- */
@@ -166,6 +194,10 @@ static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
 static int  ping_waiting = 0;
 static uint16_t ping_ident = 0, ping_seq = 0;
 static int  ping_got_reply = 0;
+
+extern void udp_on_packet(const uint8_t src_ip[4], const uint8_t* udp, int len);
+extern void tcp_on_segment(const uint8_t src_ip[4], const uint8_t src_mac[6],
+                            const uint8_t* seg, int len);
 
 static void handle_frame(const uint8_t* f, int len) {
     if (len < 14) return;
@@ -197,7 +229,21 @@ static void handle_frame(const uint8_t* f, int len) {
         uint8_t src_ip[4], dst_ip[4];
         for (int i = 0; i < 4; i++) src_ip[i] = ip[12 + i];
         for (int i = 0; i < 4; i++) dst_ip[i] = ip[16 + i];
-        if (proto == 1 && plen >= ihl + 8 && ip_eq(dst_ip, my_ip)) {
+        if (!ip_eq(dst_ip, my_ip)) return;
+
+        /* El tamaño real del paquete IP es el que dice su propio campo
+         * "Total Length" (ip[2..3]) -- NO el tamaño del frame de Ethernet.
+         * Un frame más chico que 60 bytes se rellena con padding para
+         * llegar al mínimo de Ethernet, y ese relleno quedaría contado
+         * como si fuera payload de más si usáramos `plen` (el largo del
+         * frame) para todo lo que sigue: un ACK puro de TCP sin datos que
+         * llega en un frame corto aparecería con "datos" fantasma iguales
+         * al padding, rompiendo el número de secuencia. */
+        int ip_total = rd16(ip + 2);
+        if (ip_total < ihl || ip_total > plen) ip_total = plen; /* defensivo */
+        int l4len = ip_total - ihl;
+
+        if (proto == 1 && l4len >= 8) {
             const uint8_t* icmp = ip + ihl;
             uint8_t type = icmp[0];
             uint16_t ident = rd16(icmp + 4);
@@ -206,26 +252,34 @@ static void handle_frame(const uint8_t* f, int len) {
                 uint8_t src_mac[6];
                 for (int i = 0; i < 6; i++) src_mac[i] = f[6 + i];
                 arp_cache_add(src_ip, src_mac);
-                int dlen = plen - ihl - 8;
+                int dlen = l4len - 8;
                 icmp_send(src_ip, src_mac, 0, ident, seq, icmp + 8, dlen);
             } else if (type == 0 && ping_waiting
                        && ident == ping_ident && seq == ping_seq) {
                 ping_got_reply = 1;
             }
+        } else if (proto == 17) {
+            udp_on_packet(src_ip, ip + ihl, l4len);
+        } else if (proto == 6) {
+            uint8_t src_mac[6];
+            for (int i = 0; i < 6; i++) src_mac[i] = f[6 + i];
+            arp_cache_add(src_ip, src_mac);
+            tcp_on_segment(src_ip, src_mac, ip + ihl, l4len);
         }
     }
 }
 
 /* drena todos los frames que haya en el anillo de RX en este instante
- * (sin bloquear) — se llama en bucle desde scan()/ping() con su propio
- * control de tiempo por afuera */
-static void net_drain(void) {
+ * (sin bloquear) — se llama en bucle desde scan()/ping()/udp.c/tcp.c con
+ * su propio control de tiempo por afuera */
+void net_poll_once(void) {
     uint8_t buf[1600];
     int n;
     while ((n = rtl8139_poll_recv(buf, sizeof(buf))) > 0) {
         handle_frame(buf, n);
     }
 }
+static void net_drain(void) { net_poll_once(); }
 
 /* --------------------------- API expuesta a pyos -------------------------- */
 
@@ -291,7 +345,7 @@ int pyos_scan(void) {
 }
 
 /* pide por ARP la MAC de dst_ip si no la tenemos, esperando hasta max_ticks */
-static int arp_resolve(const uint8_t dst_ip[4], uint8_t out_mac[6], uint32_t max_ticks) {
+int arp_resolve(const uint8_t dst_ip[4], uint8_t out_mac[6], uint32_t max_ticks) {
     for (int i = 0; i < arp_n; i++) {
         if (ip_eq(arp_ip[i], dst_ip)) {
             for (int k = 0; k < 6; k++) out_mac[k] = arp_mac[i][k];
@@ -314,7 +368,7 @@ static int arp_resolve(const uint8_t dst_ip[4], uint8_t out_mac[6], uint32_t max
 }
 
 /* parsea "A.B.C.D" a 4 bytes; 0.0.0.0 si el formato no es válido */
-static void parse_ip(const char* s, uint8_t out[4]) {
+void net_parse_ip(const char* s, uint8_t out[4]) {
     int part = 0, val = 0, seen = 0;
     for (int i = 0; part < 4; i++) {
         char c = s[i];
@@ -334,7 +388,7 @@ int pyos_ping(const char* ip_str) {
     if (!net_ready) { pyos_draw("net: llama a pyos.net_init() primero\n"); return 0; }
 
     uint8_t dst_ip[4];
-    parse_ip(ip_str, dst_ip);
+    net_parse_ip(ip_str, dst_ip);
 
     uint8_t dst_mac[6];
     if (!arp_resolve(dst_ip, dst_mac, 20)) {
@@ -358,7 +412,7 @@ int pyos_ping(const char* ip_str) {
     if (ping_got_reply) {
         uint32_t rtt = pyos_ticks() - t0;
         pyos_draw("pong de "); draw_ip(dst_ip);
-        pyos_draw(" en ~"); 
+        pyos_draw(" en ~");
         {
             char tmp[12]; int n = 0; uint32_t v = rtt * 10; /* ticks -> ms aprox */
             if (v == 0) tmp[n++] = '0';

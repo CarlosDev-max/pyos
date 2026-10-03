@@ -99,6 +99,14 @@ _RUNTIME_CALLS = {
     "my_ip": ("pyos_my_ip", "str"),
     "scan": ("pyos_scan", "int"),          # barrido ARP de la /24 local
     "ping": ("pyos_ping", "int"),          # pyos.ping("10.0.2.2") -> 1/0
+    "udp_send": ("pyos_udp_send", "int"),
+    "udp_recv": ("pyos_udp_recv", "str"),
+    "resolve": ("pyos_resolve", "str"),
+    "tcp_connect": ("pyos_tcp_connect", "int"),
+    "tcp_send": ("pyos_tcp_send", "int"),
+    "tcp_recv": ("pyos_tcp_recv", "str"),
+    "tcp_close": ("pyos_tcp_close", "int"),
+    "http_get": ("pyos_http_get", "str"),
     # Fase 4 — lector del CD booteado (iso9660.c)
     "iso_status": ("pyos_iso_status", "int"),
     "iso_ls": ("pyos_iso_ls", "int"),
