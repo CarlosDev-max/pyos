@@ -82,8 +82,20 @@ multitarea sin poder reservar y liberar memoria por proceso).
   hace ping a pyos
 - Probado con captura de paquetes real (pcap vía QEMU): 257 paquetes
   reales en un scan completo, no simulados
-- Pendiente para una vuelta futura: DHCP (mucho más complejo a nivel de
-  paquete que ARP+IP+ICMP) y UDP/TCP
+- **Segunda vuelta — UDP, DNS, TCP y HTTP real:**
+  - `pyos.udp_send()` / `pyos.udp_recv()`: UDP genérico
+  - `pyos.resolve(host)`: DNS real (consulta al proxy DNS de QEMU,
+    probado resolviendo `example.com` contra internet de verdad)
+  - Cliente TCP mínimo (`pyos.tcp_connect/send/recv/close`): handshake de
+    3 vías real, stop-and-wait simple, cierre FIN/ACK
+  - `pyos.http_get(host, path)`: GET HTTP/1.0 real arriba del TCP propio
+    — probado con un servidor HTTP corriendo en el host, trayendo la
+    página completa (headers + body) de verdad
+  - Bug real encontrado y arreglado con una captura de paquetes: el
+    padding de Ethernet (frames rellenados hasta 60 bytes) se contaba
+    como payload fantasma, corrompiendo el número de secuencia de TCP
+  - Pendiente para una vuelta futura: DHCP (mucho más complejo a nivel
+    de paquete que ARP+IP+ICMP), UDP con cola de mensajes real
 
 ## 🔜 Fase 7 — Pulido para "OS real"
 - Empaquetar un instalador (copiar la ISO a un disco real, no solo bootear

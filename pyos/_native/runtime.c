@@ -56,7 +56,14 @@ void pyos_clear(void) {
 }
 
 void pyos_putc(char c) {
-    if (c == '\n') {
+    if (c == '\r') {
+        /* CRLF (muy común en protocolos de red como HTTP): el '\r' solo
+         * vuelve al principio de la línea actual, sin avanzar de fila --
+         * el '\n' que normalmente lo sigue ya hace el salto de línea. Sin
+         * este caso, '\r' se dibujaba como un carácter CP437 real (una
+         * notita musical) en vez de ignorarse. */
+        vga_col = 0;
+    } else if (c == '\n') {
         vga_col = 0;
         vga_row++;
     } else {
