@@ -36,6 +36,8 @@ static void wr32(uint8_t* p, uint32_t v) {
 #define TCP_SYN_SENT     1
 #define TCP_ESTABLISHED  2
 #define TCP_CLOSING      3
+#define TCP_LISTEN       4
+#define TCP_SYN_RCVD     5
 
 static int      state = TCP_CLOSED;
 static uint8_t  peer_ip[4];
@@ -43,6 +45,7 @@ static uint8_t  peer_mac[6];
 static uint16_t local_port = 51000;
 static uint16_t remote_port;
 static uint32_t snd_nxt, rcv_nxt;
+static int      is_server = 0; /* 1 si llegamos a ESTABLISHED vía listen+accept */
 
 #define RECV_BUF_MAX 4096
 static char     recv_buf[RECV_BUF_MAX + 1];
@@ -76,10 +79,33 @@ static void tcp_send_seg(uint8_t flags, const uint8_t* data, int dlen) {
 void tcp_on_segment(const uint8_t src_ip[4], const uint8_t src_mac[6],
                      const uint8_t* seg, int len) {
     if (state == TCP_CLOSED || len < 20) return;
-    for (int i = 0; i < 4; i++) if (src_ip[i] != peer_ip[i]) return;
 
     uint16_t sport = rd16(seg + 0);
-    if (sport != remote_port || rd16(seg + 2) != local_port) return;
+    uint16_t dport = rd16(seg + 2);
+
+    if (state == TCP_LISTEN) {
+        /* esperando un cliente nuevo: solo nos importa un SYN puro
+         * (no un SYN+ACK, que sería de otra conexión saliente nuestra) */
+        if (dport != local_port) return;
+        uint8_t flags0 = seg[13];
+        if (!(flags0 & 0x02) || (flags0 & 0x10)) return;
+
+        uint32_t seq0 = rd32(seg + 4);
+        for (int i = 0; i < 4; i++) peer_ip[i] = src_ip[i];
+        for (int i = 0; i < 6; i++) peer_mac[i] = src_mac[i];
+        remote_port = sport;
+        rcv_nxt = seq0 + 1;
+        snd_nxt = pyos_ticks() * 2654435761u + 11u; /* ISN propio */
+        recv_len = 0;
+        got_fin = 0;
+        state = TCP_SYN_RCVD;
+        tcp_send_seg(0x12 /* SYN+ACK */, 0, 0);
+        snd_nxt += 1; /* nuestro SYN también consume un número de secuencia */
+        return;
+    }
+
+    for (int i = 0; i < 4; i++) if (src_ip[i] != peer_ip[i]) return;
+    if (sport != remote_port || dport != local_port) return;
 
     uint32_t seq = rd32(seg + 4);
     uint32_t ack = rd32(seg + 8);
@@ -87,6 +113,14 @@ void tcp_on_segment(const uint8_t src_ip[4], const uint8_t src_mac[6],
     uint8_t flags = seg[13];
     int dlen = len - doff;
     (void)src_mac;
+
+    if (state == TCP_SYN_RCVD) {
+        if (flags & 0x04) { state = TCP_LISTEN; return; } /* RST: el cliente se arrepintió */
+        if ((flags & 0x10) && ack == snd_nxt) { /* ACK final del cliente: handshake completo */
+            state = TCP_ESTABLISHED;
+        }
+        return;
+    }
 
     if (state == TCP_SYN_SENT) {
         if (flags & 0x04) { /* RST: conexión rechazada, no hace falta esperar el timeout */
@@ -123,6 +157,32 @@ void tcp_on_segment(const uint8_t src_ip[4], const uint8_t src_mac[6],
     }
 }
 
+/* Pone a pyos a escuchar conexiones entrantes en `port`. No bloquea: solo
+ * arma el estado; usar pyos_tcp_accept() para esperar a que llegue un
+ * cliente de verdad. */
+int pyos_tcp_listen(int port) {
+    if (!pyos_net_ready()) return 0;
+    local_port = (uint16_t)port;
+    is_server = 1;
+    recv_len = 0;
+    got_fin = 0;
+    state = TCP_LISTEN;
+    return 1;
+}
+
+/* Espera (hasta max_ticks) a que un cliente complete el handshake de
+ * entrada. Devuelve 1 si hay una conexión establecida (y entonces
+ * tcp_send/tcp_recv/tcp_close hablan con ESE cliente), 0 si nadie se
+ * conectó a tiempo (y se sigue escuchando). */
+int pyos_tcp_accept(int max_ticks) {
+    if (state != TCP_LISTEN && state != TCP_SYN_RCVD) return 0;
+    uint32_t deadline = pyos_ticks() + (uint32_t)(max_ticks < 0 ? 0 : max_ticks);
+    while (state != TCP_ESTABLISHED && pyos_ticks() < deadline) net_poll_once();
+    if (state == TCP_ESTABLISHED) return 1;
+    if (state == TCP_SYN_RCVD) state = TCP_LISTEN; /* se nos fue el cliente: seguimos escuchando */
+    return 0;
+}
+
 int pyos_tcp_connect(const char* ip_str, int port) {
     if (!pyos_net_ready()) return 0;
     net_parse_ip(ip_str, peer_ip);
@@ -136,6 +196,7 @@ int pyos_tcp_connect(const char* ip_str, int port) {
     snd_nxt = pyos_ticks() * 12345u + 7u; /* ISN pseudo-aleatorio, alcanza para un cliente */
     recv_len = 0;
     got_fin = 0;
+    is_server = 0;
     state = TCP_SYN_SENT;
 
     tcp_send_seg(0x02 /* SYN */, 0, 0);
@@ -183,13 +244,33 @@ const char* pyos_tcp_recv(int max_ticks) {
 }
 
 void pyos_tcp_close(void) {
-    if (state == TCP_CLOSED) return;
+    if (state == TCP_CLOSED || state == TCP_LISTEN) return;
     tcp_send_seg(0x11 /* FIN+ACK */, 0, 0);
     snd_nxt += 1;
     state = TCP_CLOSING;
     uint32_t deadline = pyos_ticks() + 30;
     while (pyos_ticks() < deadline) net_poll_once();
-    state = TCP_CLOSED;
+    /* si éramos un servidor, volvemos a escuchar para el próximo cliente
+     * en vez de quedar cerrados del todo */
+    state = is_server ? TCP_LISTEN : TCP_CLOSED;
+}
+
+/* Dirección IP del cliente conectado actualmente (como servidor) o del
+ * servidor al que nos conectamos (como cliente). "" si no hay nadie. */
+const char* pyos_tcp_peer_ip(void) {
+    static char buf[16];
+    if (state != TCP_ESTABLISHED && state != TCP_CLOSING) { buf[0] = 0; return buf; }
+    int p = 0;
+    for (int k = 0; k < 4; k++) {
+        int v = peer_ip[k];
+        char tmp[4]; int n = 0;
+        if (v == 0) tmp[n++] = '0';
+        while (v > 0) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
+        while (n > 0) buf[p++] = tmp[--n];
+        if (k < 3) buf[p++] = '.';
+    }
+    buf[p] = 0;
+    return buf;
 }
 
 /* ------------------------------- HTTP GET --------------------------------- */

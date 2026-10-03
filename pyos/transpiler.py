@@ -103,9 +103,12 @@ _RUNTIME_CALLS = {
     "udp_recv": ("pyos_udp_recv", "str"),
     "resolve": ("pyos_resolve", "str"),
     "tcp_connect": ("pyos_tcp_connect", "int"),
+    "tcp_listen": ("pyos_tcp_listen", "int"),
+    "tcp_accept": ("pyos_tcp_accept", "int"),
     "tcp_send": ("pyos_tcp_send", "int"),
     "tcp_recv": ("pyos_tcp_recv", "str"),
     "tcp_close": ("pyos_tcp_close", "int"),
+    "tcp_peer_ip": ("pyos_tcp_peer_ip", "str"),
     "http_get": ("pyos_http_get", "str"),
     # Fase 4 — lector del CD booteado (iso9660.c)
     "iso_status": ("pyos_iso_status", "int"),
@@ -589,6 +592,14 @@ class Transpiler:
                 raise TranspileError("str() solo puede convertir enteros", node)
             return (f"pyos_int_to_str({c})", "str")
 
+        if isinstance(node.func, ast.Name) and node.func.id == "len":
+            if len(node.args) != 1:
+                raise TranspileError("len() recibe exactamente un argumento", node)
+            c, t = self._emit_expr(node.args[0], scope)
+            if t != "str":
+                raise TranspileError("len() solo funciona con strings", node)
+            return (f"pyos_strlen({c})", "int")
+
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id == "pyos":
             fname = node.func.attr
@@ -662,6 +673,14 @@ class Transpiler:
                 out.append("\\n")
             elif ch == "\t":
                 out.append("\\t")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+                # cualquier otro carácter de control (poco común, pero
+                # igual de peligroso que el \r si se mete crudo: un byte
+                # de control sin escapar puede cortar el string literal
+                # de C a la mitad, como pasaba antes con \r)
+                out.append(f"\\{ord(ch):03o}")
             elif ord(ch) < 128:
                 out.append(ch)
             else:

@@ -32,6 +32,7 @@ const char* pyos_strdup(const char* s);
 const char* pyos_concat(const char* a, const char* b);
 const char* pyos_int_to_str(int value);
 int pyos_streq(const char* a, const char* b);
+int pyos_strlen(const char* s);
 
 /* speaker.c / rng.c */
 void pyos_beep(int freq_hz, int ms);
@@ -206,11 +207,14 @@ int pyos_udp_send(const char* ip, int port, const char* text);
 const char* pyos_udp_recv(int max_ticks);       /* "" si no llego nada (buffer estatico) */
 const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (buffer estatico) */
 
-/* tcp.c — cliente TCP minimo + HTTP GET */
+/* tcp.c — cliente/servidor TCP minimo + HTTP GET */
 int pyos_tcp_connect(const char* ip, int port);
+int pyos_tcp_listen(int port);                  /* servidor: empieza a escuchar */
+int pyos_tcp_accept(int max_ticks);              /* servidor: espera un cliente */
 int pyos_tcp_send(const char* text);
 const char* pyos_tcp_recv(int max_ticks);       /* buffer estatico, se pisa en la proxima llamada */
 void pyos_tcp_close(void);
+const char* pyos_tcp_peer_ip(void);             /* IP del otro lado de la conexion actual */
 const char* pyos_http_get(const char* host, const char* path); /* buffer estatico */
 
 #endif

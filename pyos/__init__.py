@@ -63,8 +63,9 @@ __all__ = [
     "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
     "fs_mounted", "fopen_append", "fs_status",
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
-    "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_send",
-    "tcp_recv", "tcp_close", "http_get",
+    "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_listen",
+    "tcp_accept", "tcp_send", "tcp_recv", "tcp_close", "tcp_peer_ip",
+    "http_get",
 ]
 
 _last_readline = ""
@@ -409,11 +410,36 @@ _tcp_connected = False
 
 
 def tcp_connect(ip: str, port: int) -> int:
-    global _tcp_connected
+    global _tcp_connected, _tcp_peer_ip
     if not _net_ready:
         return 0
     sys.stderr.write(f"[sim] tcp_connect a {ip}:{port}\n")
     _tcp_connected = True
+    _tcp_peer_ip = ip
+    return 1
+
+
+_tcp_listening = False
+
+
+def tcp_listen(port: int) -> int:
+    global _tcp_listening
+    if not _net_ready:
+        return 0
+    sys.stderr.write(f"[sim] tcp_listen en el puerto {port}\n")
+    _tcp_listening = True
+    return 1
+
+
+def tcp_accept(max_ticks: int) -> int:
+    """Simula aceptar un cliente de juguete (siempre 'llega' uno,
+    salvo que no se esté escuchando)."""
+    global _tcp_connected, _tcp_peer_ip
+    if not _tcp_listening:
+        return 0
+    sys.stderr.write(f"[sim] tcp_accept (timeout simulado, {max_ticks} ticks): cliente de juguete\n")
+    _tcp_connected = True
+    _tcp_peer_ip = "203.0.113.42"
     return 1
 
 
@@ -435,6 +461,13 @@ def tcp_close() -> int:
     global _tcp_connected
     _tcp_connected = False
     return 0
+
+
+_tcp_peer_ip = ""
+
+
+def tcp_peer_ip() -> str:
+    return _tcp_peer_ip if _tcp_connected else ""
 
 
 def http_get(host: str, path: str) -> str:

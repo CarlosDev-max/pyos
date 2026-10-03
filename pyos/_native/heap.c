@@ -136,6 +136,10 @@ static uint32_t hstrlen(const char* s) {
     return n;
 }
 
+/* Largo de un string. Lo que genera `len(x)` en el Python del usuario
+ * cuando x es str. */
+int pyos_strlen(const char* s) { return (int)hstrlen(s); }
+
 const char* pyos_strdup(const char* s) {
     if (!s) return 0;
     return pyos_concat(s, "");

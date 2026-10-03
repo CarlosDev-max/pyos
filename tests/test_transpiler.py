@@ -825,3 +825,45 @@ def test_f_fs_mounted():
 def test_f_fopen_append():
     c = transpile(_c("n = pyos.fopen_append(3, \"mas\")"))
     assert 'pyos_fopen_append(3, "mas")' in c
+
+
+def test_carriage_return_is_escaped():
+    """Regresión: un '\\r' literal (muy común en protocolos de red, CRLF)
+    rompía el string literal de C generado si no se escapaba."""
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    pyos.draw(\"HTTP/1.0 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n\")\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "\\r\\n" in c
+    assert "\r" not in c  # nunca un CR crudo en el .c generado
+
+
+def test_len_builtin_on_string():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    s = \"hola\"\n"
+        "    n = len(s)\n"
+        "    pyos.draw(str(n))\n"
+        "    pyos.halt()\n"
+    )
+    c = transpile(src)
+    assert "pyos_strlen(s)" in c
+
+
+def test_len_rejects_int():
+    src = (
+        "import pyos\n"
+        "@pyos.entry\n"
+        "def main():\n"
+        "    x = 5\n"
+        "    n = len(x)\n"
+        "    pyos.halt()\n"
+    )
+    with pytest.raises(TranspileError, match="len\\(\\) solo funciona con strings"):
+        transpile(src)
