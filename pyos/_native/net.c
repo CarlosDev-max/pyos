@@ -344,21 +344,41 @@ int pyos_scan(void) {
     return arp_n;
 }
 
-/* pide por ARP la MAC de dst_ip si no la tenemos, esperando hasta max_ticks */
+/* Gateway por defecto, para todo lo que no sea de la red local -- sin
+ * esto, "resolver la MAC" de una IP de internet real nunca contesta
+ * nadie (nadie en el segmento local ES 74.6.168.72, por ejemplo). Mismo
+ * valor que usa QEMU en su red "user" (SLIRP). */
+static uint8_t my_netmask[4] = {255, 255, 255, 0};
+static uint8_t my_gateway[4] = {10, 0, 2, 2};
+
+static int ip_is_local(const uint8_t ip[4]) {
+    for (int i = 0; i < 4; i++) {
+        if ((ip[i] & my_netmask[i]) != (my_ip[i] & my_netmask[i])) return 0;
+    }
+    return 1;
+}
+
+/* Resuelve la MAC a la que hay que mandarle el frame para que llegue a
+ * dst_ip. Si dst_ip está en la red local, es su propia MAC (ARP directo,
+ * como antes). Si no, es la MAC del gateway -- el dst_ip real sigue yendo
+ * en el header IP sin cambios, solo cambia a quién se lo entregamos en la
+ * capa de Ethernet para que lo rutee. */
 int arp_resolve(const uint8_t dst_ip[4], uint8_t out_mac[6], uint32_t max_ticks) {
+    const uint8_t* target = ip_is_local(dst_ip) ? dst_ip : my_gateway;
+
     for (int i = 0; i < arp_n; i++) {
-        if (ip_eq(arp_ip[i], dst_ip)) {
+        if (ip_eq(arp_ip[i], target)) {
             for (int k = 0; k < 6; k++) out_mac[k] = arp_mac[i][k];
             return 1;
         }
     }
     uint8_t zero_mac[6] = {0, 0, 0, 0, 0, 0};
-    arp_send(1, zero_mac, dst_ip);
+    arp_send(1, zero_mac, target);
     uint32_t deadline = pyos_ticks() + max_ticks;
     while (pyos_ticks() < deadline) {
         net_drain();
         for (int i = 0; i < arp_n; i++) {
-            if (ip_eq(arp_ip[i], dst_ip)) {
+            if (ip_eq(arp_ip[i], target)) {
                 for (int k = 0; k < 6; k++) out_mac[k] = arp_mac[i][k];
                 return 1;
             }
