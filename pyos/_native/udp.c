@@ -186,3 +186,92 @@ const char* pyos_resolve(const char* host) {
     }
     return result;
 }
+
+/* --------------------------------- NTP ------------------------------------ */
+
+/* Convierte días desde 1970-01-01 a año/mes/día (calendario gregoriano
+ * proléptico). Algoritmo estándar de Howard Hinnant, sin tablas ni
+ * dependencias de librería — todo con aritmética entera. */
+static void civil_from_days(long z, int* y, int* m, int* d) {
+    z += 719468;
+    long era = (z >= 0 ? z : z - 146096) / 146097;
+    long doe = z - era * 146097;                    /* 0..146096 */
+    long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; /* 0..399 */
+    long yr = yoe + era * 400;
+    long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);               /* 0..365 */
+    long mp = (5 * doy + 2) / 153;                                     /* 0..11 */
+    long day = doy - (153 * mp + 2) / 5 + 1;                           /* 1..31 */
+    long month = mp + (mp < 10 ? 3 : -9);                              /* 1..12 */
+    *y = (int)(yr + (month <= 2 ? 1 : 0));
+    *m = (int)month;
+    *d = (int)day;
+}
+
+static int put_fixed(char* buf, int v, int width) {
+    char tmp[12];
+    int n = 0;
+    if (v < 0) v = 0;
+    do { tmp[n++] = (char)('0' + v % 10); v /= 10; } while (v > 0 || n < width);
+    int i = 0;
+    while (n > 0) buf[i++] = tmp[--n];
+    return i;
+}
+
+/* Hora real por NTP (RFC 958): manda un paquete cliente mínimo de 48
+ * bytes y lee el "Transmit Timestamp" (segundos desde 1900) de la
+ * respuesta, convertido a Unix time (segundos desde 1970). Devuelve 0 si
+ * no hubo respuesta. */
+int pyos_ntp_time(const char* ip_str) {
+    if (!pyos_net_ready()) return 0;
+    uint8_t dst_ip[4];
+    net_parse_ip(ip_str, dst_ip);
+
+    uint8_t pkt[48];
+    for (int i = 0; i < 48; i++) pkt[i] = 0;
+    pkt[0] = 0x1B; /* LI=0, VN=4, Mode=3 (cliente) */
+
+    int rlen = udp_request(dst_ip, 123, pkt, 48, 150); /* ~1.5s de timeout */
+    if (rlen < 48) return 0;
+
+    const uint8_t* r = udp_reply;
+    uint32_t secs_since_1900 =
+        ((uint32_t)r[40] << 24) | ((uint32_t)r[41] << 16) |
+        ((uint32_t)r[42] << 8) | r[43];
+    if (secs_since_1900 < 2208988800u) return 0; /* respuesta sin sentido */
+    return (int)(secs_since_1900 - 2208988800u);  /* 1900 -> 1970 (epoch Unix) */
+}
+
+/* Lo mismo que pyos_ntp_time(), pero formateado como texto legible
+ * ("2026-10-03 14:05:22 UTC") en vez del timestamp crudo. */
+const char* pyos_ntp_datetime(const char* ip_str) {
+    static char buf[32];
+    buf[0] = 0;
+    int unix_time = pyos_ntp_time(ip_str);
+    if (unix_time == 0) return buf;
+
+    long days = unix_time / 86400;
+    long rem = unix_time % 86400;
+    int hh = (int)(rem / 3600);
+    int mm = (int)((rem % 3600) / 60);
+    int ss = (int)(rem % 60);
+
+    int y, mo, d;
+    civil_from_days(days, &y, &mo, &d);
+
+    int p = 0;
+    p += put_fixed(buf + p, y, 4);
+    buf[p++] = '-';
+    p += put_fixed(buf + p, mo, 2);
+    buf[p++] = '-';
+    p += put_fixed(buf + p, d, 2);
+    buf[p++] = ' ';
+    p += put_fixed(buf + p, hh, 2);
+    buf[p++] = ':';
+    p += put_fixed(buf + p, mm, 2);
+    buf[p++] = ':';
+    p += put_fixed(buf + p, ss, 2);
+    buf[p++] = ' ';
+    buf[p++] = 'U'; buf[p++] = 'T'; buf[p++] = 'C';
+    buf[p] = 0;
+    return buf;
+}

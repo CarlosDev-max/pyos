@@ -65,7 +65,7 @@ __all__ = [
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
     "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_listen",
     "tcp_accept", "tcp_send", "tcp_recv", "tcp_close", "tcp_peer_ip",
-    "http_get",
+    "http_get", "ntp_time", "ntp_datetime",
 ]
 
 _last_readline = ""
@@ -404,6 +404,24 @@ def resolve(host: str) -> str:
         return ""
     sys.stderr.write(f"[sim] resolve({host!r}): IP de juguete\n")
     return "93.184.216.34"
+
+
+def ntp_time(ip: str) -> int:
+    """Simula una consulta NTP: devuelve la hora real de ESTA máquina
+    (donde corre la simulación), no la de ningún servidor de red."""
+    if not _net_ready:
+        return 0
+    import time as _time
+    sys.stderr.write(f"[sim] ntp_time({ip!r}): hora local de la simulación\n")
+    return int(_time.time())
+
+
+def ntp_datetime(ip: str) -> str:
+    if not _net_ready:
+        return ""
+    import time as _time
+    sys.stderr.write(f"[sim] ntp_datetime({ip!r}): hora local de la simulación\n")
+    return _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime())
 
 
 _tcp_connected = False

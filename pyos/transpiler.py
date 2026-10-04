@@ -102,6 +102,8 @@ _RUNTIME_CALLS = {
     "udp_send": ("pyos_udp_send", "int"),
     "udp_recv": ("pyos_udp_recv", "str"),
     "resolve": ("pyos_resolve", "str"),
+    "ntp_time": ("pyos_ntp_time", "int"),
+    "ntp_datetime": ("pyos_ntp_datetime", "str"),
     "tcp_connect": ("pyos_tcp_connect", "int"),
     "tcp_listen": ("pyos_tcp_listen", "int"),
     "tcp_accept": ("pyos_tcp_accept", "int"),

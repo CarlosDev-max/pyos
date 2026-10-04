@@ -206,6 +206,8 @@ int pyos_ping(const char* ip);                  /* ICMP echo real, 1=respondio *
 int pyos_udp_send(const char* ip, int port, const char* text);
 const char* pyos_udp_recv(int max_ticks);       /* "" si no llego nada (buffer estatico) */
 const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (buffer estatico) */
+int pyos_ntp_time(const char* ip);              /* hora real (Unix epoch) por NTP, 0 si falla */
+const char* pyos_ntp_datetime(const char* ip);  /* "YYYY-MM-DD HH:MM:SS UTC" (buffer estatico) */
 
 /* tcp.c — cliente/servidor TCP minimo + HTTP GET */
 int pyos_tcp_connect(const char* ip, int port);
