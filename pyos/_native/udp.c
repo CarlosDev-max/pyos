@@ -74,7 +74,7 @@ static void udp_send_raw(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
 static int udp_request(const uint8_t dst_ip[4], uint16_t dst_port,
                         const uint8_t* data, int dlen, uint32_t max_ticks) {
     uint8_t dst_mac[6];
-    if (!arp_resolve(dst_ip, dst_mac, 20)) return -1;
+    if (!arp_resolve(dst_ip, dst_mac, 50)) return -1;
 
     udp_wait_port = udp_src_port;
     udp_reply_len = -1;

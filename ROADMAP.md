@@ -94,6 +94,23 @@ multitarea sin poder reservar y liberar memoria por proceso).
   - Bug real encontrado y arreglado con una captura de paquetes: el
     padding de Ethernet (frames rellenados hasta 60 bytes) se contaba
     como payload fantasma, corrompiendo el número de secuencia de TCP
+  - Otro bug crítico: un `\r` literal en un string de Python (CRLF,
+    común en HTTP) rompía el string literal de C generado por el
+    transpiler al no escaparse
+  - **Tercera vuelta — servidor TCP, ruteo y NTP:**
+    - `pyos.tcp_listen()` / `pyos.tcp_accept()` / `pyos.tcp_peer_ip()`:
+      pyos también puede ser servidor, no solo cliente — probado con un
+      `curl` real desde el host pidiéndole una página a un kernel.py de
+      pyos vía `hostfwd` de QEMU
+    - Gateway/ruteo real (`arp_resolve` redirige al gateway cuando el
+      destino no está en la red local) — sin esto, nunca se podía llegar
+      a una IP de internet real que no fuera la del DNS de QEMU
+    - `pyos.ntp_time()` / `pyos.ntp_datetime()`: cliente NTP real (con
+      conversión de calendario civil mano, sin librería). El paquete
+      sale bien formado y llega al servidor real (confirmado con
+      captura de paquetes) pero en el entorno de desarrollo el UDP/123
+      de salida está bloqueado a nivel de red — debería funcionar en
+      una red sin esa restricción
   - Pendiente para una vuelta futura: DHCP (mucho más complejo a nivel
     de paquete que ARP+IP+ICMP), UDP con cola de mensajes real
 

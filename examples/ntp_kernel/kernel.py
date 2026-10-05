@@ -5,6 +5,15 @@ un paquete NTP real (RFC 958) para traer la hora UTC actual. Nada de esto
 es simulado: el kernel no tiene reloj propio (RTC) todavía -- la única
 hora que conoce es la que le contesta la red.
 
+Nota de desarrollo: en el entorno donde se escribió esto, el tráfico
+UDP al puerto 123 (NTP) está bloqueado a nivel de red (verificado: ni
+siquiera un script de Python corriendo directo en esa máquina, sin QEMU
+de por medio, puede recibir respuesta de un servidor NTP real) -- así
+que el paquete sale bien formado y le llega al servidor real (confirmado
+con captura de paquetes), pero la respuesta nunca puede volver. En una
+red sin esa restricción (tu PC, por ejemplo) debería funcionar igual que
+el resto de esta fase (DNS, TCP, HTTP) ya probado en vivo.
+
 Probalo de verdad:
     pyos build examples/ntp_kernel/kernel.py -o ntp.iso
     qemu-system-i386 -cdrom ntp.iso -netdev user,id=n0 \
