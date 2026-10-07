@@ -104,6 +104,7 @@ _RUNTIME_CALLS = {
     "resolve": ("pyos_resolve", "str"),
     "ntp_time": ("pyos_ntp_time", "int"),
     "ntp_datetime": ("pyos_ntp_datetime", "str"),
+    "dhcp_configure": ("pyos_dhcp_configure", "int"),
     "tcp_connect": ("pyos_tcp_connect", "int"),
     "tcp_listen": ("pyos_tcp_listen", "int"),
     "tcp_accept": ("pyos_tcp_accept", "int"),

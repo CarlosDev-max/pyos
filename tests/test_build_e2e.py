@@ -20,6 +20,7 @@ EXAMPLES = [
     Path(__file__).parent.parent / "examples" / "http_kernel" / "kernel.py",
     Path(__file__).parent.parent / "examples" / "server_kernel" / "kernel.py",
     Path(__file__).parent.parent / "examples" / "ntp_kernel" / "kernel.py",
+    Path(__file__).parent.parent / "examples" / "dhcp_kernel" / "kernel.py",
 ]
 
 pytestmark = pytest.mark.skipif(

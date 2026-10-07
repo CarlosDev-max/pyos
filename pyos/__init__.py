@@ -65,7 +65,7 @@ __all__ = [
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
     "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_listen",
     "tcp_accept", "tcp_send", "tcp_recv", "tcp_close", "tcp_peer_ip",
-    "http_get", "ntp_time", "ntp_datetime",
+    "http_get", "ntp_time", "ntp_datetime", "dhcp_configure",
 ]
 
 _last_readline = ""
@@ -422,6 +422,14 @@ def ntp_datetime(ip: str) -> str:
     import time as _time
     sys.stderr.write(f"[sim] ntp_datetime({ip!r}): hora local de la simulación\n")
     return _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime())
+
+
+def dhcp_configure(timeout_ticks: int) -> int:
+    """Simula negociar DHCP: siempre 'consigue' una IP de juguete fija."""
+    if not _net_ready:
+        return 0
+    sys.stderr.write(f"[sim] dhcp_configure (timeout simulado, {timeout_ticks} ticks): IP de juguete\n")
+    return 1
 
 
 _tcp_connected = False

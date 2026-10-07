@@ -27,6 +27,8 @@ extern int  rtl8139_poll_recv(uint8_t* out, int max);
 
 static uint8_t my_mac[6];
 static uint8_t my_ip[4] = {10, 0, 2, 15};
+static uint8_t my_netmask[4] = {255, 255, 255, 0};
+static uint8_t my_gateway[4] = {10, 0, 2, 2};
 static int net_ready = 0;
 
 #define ETH_BROADCAST { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
@@ -173,6 +175,15 @@ void net_send_ip(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
 void net_get_my_mac(uint8_t out[6]) { for (int i = 0; i < 6; i++) out[i] = my_mac[i]; }
 void net_get_my_ip(uint8_t out[4])  { for (int i = 0; i < 4; i++) out[i] = my_ip[i]; }
 
+/* Cambia la config de IP en caliente -- lo usa dhcp.c cuando consigue una
+ * IP de verdad (o para poner 0.0.0.0 mientras negocia). mask/gateway en
+ * NULL deja lo que ya había (para solo cambiar la IP, por ejemplo). */
+void net_set_ip_config(const uint8_t ip[4], const uint8_t mask[4], const uint8_t gw[4]) {
+    for (int i = 0; i < 4; i++) my_ip[i] = ip[i];
+    if (mask) for (int i = 0; i < 4; i++) my_netmask[i] = mask[i];
+    if (gw)   for (int i = 0; i < 4; i++) my_gateway[i] = gw[i];
+}
+
 static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
                        uint8_t type, uint16_t ident, uint16_t seq,
                        const uint8_t* data, int dlen) {
@@ -198,6 +209,7 @@ static int  ping_got_reply = 0;
 extern void udp_on_packet(const uint8_t src_ip[4], const uint8_t* udp, int len);
 extern void tcp_on_segment(const uint8_t src_ip[4], const uint8_t src_mac[6],
                             const uint8_t* seg, int len);
+extern void dhcp_on_packet(const uint8_t* udp, int len);
 
 static void handle_frame(const uint8_t* f, int len) {
     if (len < 14) return;
@@ -229,7 +241,13 @@ static void handle_frame(const uint8_t* f, int len) {
         uint8_t src_ip[4], dst_ip[4];
         for (int i = 0; i < 4; i++) src_ip[i] = ip[12 + i];
         for (int i = 0; i < 4; i++) dst_ip[i] = ip[16 + i];
-        if (!ip_eq(dst_ip, my_ip)) return;
+        {
+            uint8_t bcast[4] = {255, 255, 255, 255};
+            /* Aceptamos lo nuestro Y el broadcast -- DHCP, por ejemplo,
+             * contesta a 255.255.255.255 mientras todavía no tenemos IP
+             * confirmada (mientras negociamos, my_ip puede ser 0.0.0.0). */
+            if (!ip_eq(dst_ip, my_ip) && !ip_eq(dst_ip, bcast)) return;
+        }
 
         /* El tamaño real del paquete IP es el que dice su propio campo
          * "Total Length" (ip[2..3]) -- NO el tamaño del frame de Ethernet.
@@ -259,7 +277,12 @@ static void handle_frame(const uint8_t* f, int len) {
                 ping_got_reply = 1;
             }
         } else if (proto == 17) {
-            udp_on_packet(src_ip, ip + ihl, l4len);
+            uint16_t dport = rd16(ip + ihl + 2);
+            if (dport == 68) {
+                dhcp_on_packet(ip + ihl, l4len);
+            } else {
+                udp_on_packet(src_ip, ip + ihl, l4len);
+            }
         } else if (proto == 6) {
             uint8_t src_mac[6];
             for (int i = 0; i < 6; i++) src_mac[i] = f[6 + i];
@@ -344,12 +367,9 @@ int pyos_scan(void) {
     return arp_n;
 }
 
-/* Gateway por defecto, para todo lo que no sea de la red local -- sin
- * esto, "resolver la MAC" de una IP de internet real nunca contesta
- * nadie (nadie en el segmento local ES 74.6.168.72, por ejemplo). Mismo
- * valor que usa QEMU en su red "user" (SLIRP). */
-static uint8_t my_netmask[4] = {255, 255, 255, 0};
-static uint8_t my_gateway[4] = {10, 0, 2, 2};
+/* my_netmask / my_gateway (default: la red "user" de QEMU) están
+ * declaradas arriba, junto a my_ip -- así net_set_ip_config() puede
+ * cambiar las tres juntas cuando dhcp.c consigue una config real. */
 
 static int ip_is_local(const uint8_t ip[4]) {
     for (int i = 0; i < 4; i++) {

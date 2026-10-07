@@ -135,7 +135,7 @@ def _build_iso(
                       "rng.c", "ata.c", "myfs.c", "iso9660.c",
                       "timer.c", "proc.c", "math.c", "str2.c", "vga2.c",
                       "misc.c", "pci.c", "rtl8139.c", "net.c",
-                      "udp.c", "tcp.c")
+                      "udp.c", "tcp.c", "dhcp.c")
         for fname in (*native_c_files, "pyos_runtime.h", "boot.asm", "linker.ld"):
             shutil.copy(_NATIVE_DIR / fname, work / fname)
 

@@ -209,6 +209,9 @@ const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (b
 int pyos_ntp_time(const char* ip);              /* hora real (Unix epoch) por NTP, 0 si falla */
 const char* pyos_ntp_datetime(const char* ip);  /* "YYYY-MM-DD HH:MM:SS UTC" (buffer estatico) */
 
+/* dhcp.c — cliente DHCP real (DISCOVER/OFFER/REQUEST/ACK) */
+int pyos_dhcp_configure(int timeout_ticks);     /* 1 si consiguio IP real, 0 si no */
+
 /* tcp.c — cliente/servidor TCP minimo + HTTP GET */
 int pyos_tcp_connect(const char* ip, int port);
 int pyos_tcp_listen(int port);                  /* servidor: empieza a escuchar */
