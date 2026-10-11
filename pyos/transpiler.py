@@ -101,6 +101,12 @@ _RUNTIME_CALLS = {
     "ping": ("pyos_ping", "int"),          # pyos.ping("10.0.2.2") -> 1/0
     "udp_send": ("pyos_udp_send", "int"),
     "udp_recv": ("pyos_udp_recv", "str"),
+    "udp_listen": ("pyos_udp_listen", "int"),
+    "udp_available": ("pyos_udp_available", "int"),
+    "udp_recvfrom": ("pyos_udp_recvfrom", "str"),
+    "udp_last_ip": ("pyos_udp_last_ip", "str"),
+    "udp_last_port": ("pyos_udp_last_port", "int"),
+    "udp_reply": ("pyos_udp_reply", "int"),
     "resolve": ("pyos_resolve", "str"),
     "ntp_time": ("pyos_ntp_time", "int"),
     "ntp_datetime": ("pyos_ntp_datetime", "str"),

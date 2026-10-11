@@ -205,6 +205,12 @@ int pyos_ping(const char* ip);                  /* ICMP echo real, 1=respondio *
 /* udp.c — UDP genérico + DNS real */
 int pyos_udp_send(const char* ip, int port, const char* text);
 const char* pyos_udp_recv(int max_ticks);       /* "" si no llego nada (buffer estatico) */
+int pyos_udp_listen(int port);                  /* empieza a encolar lo que llegue a port */
+int pyos_udp_available(void);                   /* cuantos mensajes hay en la cola */
+const char* pyos_udp_recvfrom(int max_ticks);   /* el mas viejo de la cola, "" si no hay (buffer estatico) */
+const char* pyos_udp_last_ip(void);             /* quien mando el ultimo mensaje leido (buffer estatico) */
+int pyos_udp_last_port(void);
+int pyos_udp_reply(const char* text);           /* contesta al remitente del ultimo mensaje leido */
 const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (buffer estatico) */
 int pyos_ntp_time(const char* ip);              /* hora real (Unix epoch) por NTP, 0 si falla */
 const char* pyos_ntp_datetime(const char* ip);  /* "YYYY-MM-DD HH:MM:SS UTC" (buffer estatico) */

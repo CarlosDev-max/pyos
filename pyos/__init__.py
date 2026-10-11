@@ -63,7 +63,9 @@ __all__ = [
     "rand_str", "toupper_char", "tolower_char", "is_digit", "is_alpha",
     "fs_mounted", "fopen_append", "fs_status",
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
-    "udp_send", "udp_recv", "resolve", "tcp_connect", "tcp_listen",
+    "udp_send", "udp_recv", "udp_listen", "udp_available", "udp_recvfrom",
+    "udp_last_ip", "udp_last_port", "udp_reply",
+    "resolve", "tcp_connect", "tcp_listen",
     "tcp_accept", "tcp_send", "tcp_recv", "tcp_close", "tcp_peer_ip",
     "http_get", "ntp_time", "ntp_datetime", "dhcp_configure",
 ]
@@ -395,6 +397,52 @@ def udp_recv(max_ticks: int) -> str:
     """Simula esperar un datagrama UDP. Sin red real, nunca llega nada."""
     sys.stderr.write(f"[sim] udp_recv (timeout simulado, {max_ticks} ticks): nada\n")
     return ""
+
+
+# --- UDP con cola real (simulación): una cola de juguete con 2 mensajes
+# fijos, para poder probar la lógica de un servidor UDP sin red real.
+_udp_listening = False
+_udp_sim_queue = []
+_udp_last_ip = ""
+_udp_last_port = 0
+
+
+def udp_listen(port: int) -> int:
+    global _udp_listening, _udp_sim_queue
+    if not _net_ready:
+        return 0
+    sys.stderr.write(f"[sim] udp_listen en el puerto {port}: 2 mensajes de juguete en cola\n")
+    _udp_listening = True
+    _udp_sim_queue = [("203.0.113.7", 40001, "hola"), ("203.0.113.8", 40002, "chau")]
+    return 1
+
+
+def udp_available() -> int:
+    return len(_udp_sim_queue)
+
+
+def udp_recvfrom(max_ticks: int) -> str:
+    global _udp_last_ip, _udp_last_port
+    if not _udp_listening or not _udp_sim_queue:
+        return ""
+    ip, port, data = _udp_sim_queue.pop(0)
+    _udp_last_ip, _udp_last_port = ip, port
+    return data
+
+
+def udp_last_ip() -> str:
+    return _udp_last_ip
+
+
+def udp_last_port() -> int:
+    return _udp_last_port
+
+
+def udp_reply(text: str) -> int:
+    if not _udp_listening:
+        return 0
+    sys.stderr.write(f"[sim] udp_reply a {_udp_last_ip}:{_udp_last_port}: {text!r}\n")
+    return 1
 
 
 def resolve(host: str) -> str:

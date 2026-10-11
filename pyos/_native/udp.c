@@ -27,19 +27,58 @@ static void wr16(uint8_t* p, uint16_t v) { p[0] = (uint8_t)(v >> 8); p[1] = (uin
 /* ------------------------------- UDP genérico ----------------------------- */
 
 static uint16_t udp_src_port = 49152;
-static uint16_t udp_wait_port = 0;
+static uint16_t udp_wait_port = 0; /* request/response de un solo slot (DNS, NTP) */
 static uint8_t  udp_reply[512];
 static int      udp_reply_len = -1;
 
+/* ---- cola real de mensajes entrantes, para pyos.udp_listen/recvfrom ----
+ * A diferencia del mecanismo de arriba (un solo slot, pensado para
+ * request/response tipo DNS), esto es una cola FIFO de verdad: puede
+ * recibir varios mensajes de varios remitentes distintos sin perder
+ * ninguno, mientras el que los procesa (el kernel.py del usuario) todavía
+ * no llegó a leer los anteriores. */
+#define UDP_QUEUE_SIZE 8
+#define UDP_MSG_MAX 480
+
+typedef struct {
+    uint8_t  ip[4];
+    uint16_t port;
+    char     data[UDP_MSG_MAX + 1];
+    int      len;
+} udp_msg_t;
+
+static udp_msg_t udp_queue[UDP_QUEUE_SIZE];
+static int udp_q_head = 0, udp_q_tail = 0, udp_q_count = 0;
+static uint16_t udp_listen_port = 0;
+static int      udp_listening = 0;
+
+static uint8_t  udp_last_ip[4] = {0, 0, 0, 0};
+static uint16_t udp_last_port = 0;
+
 /* Llamado desde net.c cuando llega un datagrama UDP dirigido a nosotros. */
 void udp_on_packet(const uint8_t src_ip[4], const uint8_t* udp, int len) {
-    (void)src_ip;
     if (len < 8) return;
+    uint16_t sport = rd16(udp + 0);
     uint16_t dport = rd16(udp + 2);
     uint16_t ulen = rd16(udp + 4);
-    if (dport != udp_wait_port) return;
     int dlen = (int)ulen - 8;
     if (dlen < 0) return;
+
+    if (udp_listening && dport == udp_listen_port) {
+        if (udp_q_count >= UDP_QUEUE_SIZE) return; /* cola llena: se descarta */
+        int copy = dlen > UDP_MSG_MAX ? UDP_MSG_MAX : dlen;
+        udp_msg_t* m = &udp_queue[udp_q_tail];
+        for (int i = 0; i < 4; i++) m->ip[i] = src_ip[i];
+        m->port = sport;
+        for (int i = 0; i < copy; i++) m->data[i] = (char)udp[8 + i];
+        m->data[copy] = 0;
+        m->len = copy;
+        udp_q_tail = (udp_q_tail + 1) % UDP_QUEUE_SIZE;
+        udp_q_count++;
+        return;
+    }
+
+    if (dport != udp_wait_port) return;
     if (dlen > (int)sizeof(udp_reply) - 1) dlen = (int)sizeof(udp_reply) - 1;
     for (int i = 0; i < dlen; i++) udp_reply[i] = udp[8 + i];
     udp_reply[dlen] = 0;
@@ -106,6 +145,73 @@ const char* pyos_udp_recv(int max_ticks) {
     uint32_t deadline = pyos_ticks() + (uint32_t)(max_ticks < 0 ? 0 : max_ticks);
     while (udp_reply_len < 0 && pyos_ticks() < deadline) net_poll_once();
     return udp_reply_len >= 0 ? (const char*)udp_reply : empty;
+}
+
+/* ---------------- UDP con cola real (listen / recvfrom) ------------------- */
+
+/* Pone a pyos a escuchar datagramas UDP en `port`, en cola -- a
+ * diferencia de udp_recv() (que espera UNA respuesta puntual a algo que
+ * nosotros mandamos), esto acumula TODO lo que llegue a ese puerto hasta
+ * que el usuario lo vaya leyendo con udp_recvfrom(), sin perder mensajes
+ * de remitentes distintos que lleguen mientras tanto. */
+int pyos_udp_listen(int port) {
+    if (!pyos_net_ready()) return 0;
+    udp_listen_port = (uint16_t)port;
+    udp_listening = 1;
+    udp_q_head = udp_q_tail = udp_q_count = 0;
+    return 1;
+}
+
+int pyos_udp_available(void) {
+    return udp_q_count;
+}
+
+/* Espera (hasta max_ticks) a que haya al menos un mensaje en la cola, y
+ * devuelve el más viejo (FIFO). pyos.udp_last_ip()/udp_last_port() dicen
+ * quién lo mandó. "" si no llegó nada a tiempo. */
+const char* pyos_udp_recvfrom(int max_ticks) {
+    static char empty[1] = {0};
+    if (!udp_listening) return empty;
+    uint32_t deadline = pyos_ticks() + (uint32_t)(max_ticks < 0 ? 0 : max_ticks);
+    while (udp_q_count == 0 && pyos_ticks() < deadline) net_poll_once();
+    if (udp_q_count == 0) return empty;
+
+    udp_msg_t* m = &udp_queue[udp_q_head];
+    for (int i = 0; i < 4; i++) udp_last_ip[i] = m->ip[i];
+    udp_last_port = m->port;
+    udp_q_head = (udp_q_head + 1) % UDP_QUEUE_SIZE;
+    udp_q_count--;
+    return m->data;
+}
+
+const char* pyos_udp_last_ip(void) {
+    static char buf[16];
+    int p = 0;
+    for (int k = 0; k < 4; k++) {
+        int v = udp_last_ip[k]; char tmp[4]; int n = 0;
+        if (v == 0) tmp[n++] = '0';
+        while (v > 0) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
+        while (n > 0) buf[p++] = tmp[--n];
+        if (k < 3) buf[p++] = '.';
+    }
+    buf[p] = 0;
+    return buf;
+}
+
+int pyos_udp_last_port(void) { return (int)udp_last_port; }
+
+/* Contesta al remitente del último mensaje leído con udp_recvfrom() --
+ * atajo para hacer un echo/eco server sin tener que llamar udp_send()
+ * con la IP/puerto a mano. */
+int pyos_udp_reply(const char* text) {
+    if (!pyos_net_ready()) return 0;
+    uint8_t dst_mac[6];
+    if (!arp_resolve(udp_last_ip, dst_mac, 20)) return 0;
+    int len = 0;
+    while (text[len]) len++;
+    udp_send_raw(udp_last_ip, dst_mac, udp_listen_port, udp_last_port,
+                 (const uint8_t*)text, len);
+    return 1;
 }
 
 /* --------------------------------- DNS ------------------------------------ */
