@@ -20,6 +20,7 @@ extern uint16_t net_l4_checksum(const uint8_t src_ip[4], const uint8_t dst_ip[4]
 extern void net_get_my_mac(uint8_t out[6]);
 extern void net_get_my_ip(uint8_t out[4]);
 extern void net_set_ip_config(const uint8_t ip[4], const uint8_t mask[4], const uint8_t gw[4]);
+extern void net_set_dns(const uint8_t dns[4]);
 extern void net_poll_once(void);
 extern uint32_t pyos_ticks(void);
 extern void pyos_draw(const char* s);
@@ -41,6 +42,8 @@ static uint8_t  offered_ip[4];
 static uint8_t  server_ip[4];
 static uint8_t  offered_mask[4] = {255, 255, 255, 0};
 static uint8_t  offered_gw[4] = {0, 0, 0, 0};
+static uint8_t  offered_dns[4] = {0, 0, 0, 0};
+static int      have_dns = 0;
 static int      got_offer = 0;
 static int      got_ack = 0;
 static int      got_nak = 0;
@@ -91,6 +94,10 @@ void dhcp_on_packet(const uint8_t* udp, int len) {
     }
     if (dhcp_find_option(opts, optlen, 3, &p, &pl) && pl >= 4) {
         for (int i = 0; i < 4; i++) offered_gw[i] = p[i];
+    }
+    if (dhcp_find_option(opts, optlen, 6, &p, &pl) && pl >= 4) {
+        for (int i = 0; i < 4; i++) offered_dns[i] = p[i]; /* el primero de la lista */
+        have_dns = 1;
     }
 
     if (msgtype == 2) got_offer = 1;       /* DHCPOFFER */
@@ -154,6 +161,7 @@ int pyos_dhcp_configure(int timeout_ticks) {
 
     dhcp_xid++;
     got_offer = got_ack = got_nak = 0;
+    have_dns = 0;
 
     /* --- DISCOVER --- */
     uint8_t pkt[DHCP_PKT_SIZE];
@@ -193,5 +201,6 @@ int pyos_dhcp_configure(int timeout_ticks) {
     }
 
     net_set_ip_config(offered_ip, offered_mask, offered_gw);
+    if (have_dns) net_set_dns(offered_dns);
     return 1;
 }

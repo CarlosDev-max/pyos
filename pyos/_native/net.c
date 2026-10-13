@@ -29,6 +29,7 @@ static uint8_t my_mac[6];
 static uint8_t my_ip[4] = {10, 0, 2, 15};
 static uint8_t my_netmask[4] = {255, 255, 255, 0};
 static uint8_t my_gateway[4] = {10, 0, 2, 2};
+static uint8_t my_dns[4] = {10, 0, 2, 3}; /* proxy DNS de la red "user" de QEMU, por defecto */
 static int net_ready = 0;
 
 #define ETH_BROADCAST { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
@@ -183,6 +184,11 @@ void net_set_ip_config(const uint8_t ip[4], const uint8_t mask[4], const uint8_t
     if (mask) for (int i = 0; i < 4; i++) my_netmask[i] = mask[i];
     if (gw)   for (int i = 0; i < 4; i++) my_gateway[i] = gw[i];
 }
+
+/* servidor DNS: lo setea dhcp.c con lo que anuncia el servidor DHCP
+ * (opción 6), o el usuario a mano con pyos.set_dns() */
+void net_set_dns(const uint8_t dns[4]) { for (int i = 0; i < 4; i++) my_dns[i] = dns[i]; }
+void net_get_dns(uint8_t out[4])       { for (int i = 0; i < 4; i++) out[i] = my_dns[i]; }
 
 static void icmp_send(const uint8_t dst_ip[4], const uint8_t dst_mac[6],
                        uint8_t type, uint16_t ident, uint16_t seq,

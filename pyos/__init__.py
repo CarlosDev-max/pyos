@@ -65,7 +65,7 @@ __all__ = [
     "net_init", "net_ready", "net_status", "my_ip", "scan", "ping",
     "udp_send", "udp_recv", "udp_listen", "udp_available", "udp_recvfrom",
     "udp_last_ip", "udp_last_port", "udp_reply",
-    "resolve", "tcp_connect", "tcp_listen",
+    "resolve", "set_dns", "get_dns", "tcp_connect", "tcp_listen",
     "tcp_accept", "tcp_send", "tcp_recv", "tcp_close", "tcp_peer_ip",
     "http_get", "ntp_time", "ntp_datetime", "dhcp_configure",
 ]
@@ -445,13 +445,32 @@ def udp_reply(text: str) -> int:
     return 1
 
 
+_sim_dns = "10.0.2.3"
+
+
 def resolve(host: str) -> str:
     """Simula una resolución DNS. Sin red real, devuelve una IP de juguete
     fija (no necesariamente la real del host pedido)."""
     if not _net_ready:
         return ""
-    sys.stderr.write(f"[sim] resolve({host!r}): IP de juguete\n")
+    sys.stderr.write(f"[sim] resolve({host!r}) vía DNS {_sim_dns}: IP de juguete\n")
     return "93.184.216.34"
+
+
+def set_dns(ip: str) -> int:
+    """Cambia el servidor DNS (en simulación solo recuerda el valor)."""
+    global _sim_dns
+    parts = ip.split(".")
+    if len(parts) != 4 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        return 0
+    if ip == "0.0.0.0":
+        return 0
+    _sim_dns = ip
+    return 1
+
+
+def get_dns() -> str:
+    return _sim_dns
 
 
 def ntp_time(ip: str) -> int:

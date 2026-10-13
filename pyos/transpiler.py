@@ -108,6 +108,8 @@ _RUNTIME_CALLS = {
     "udp_last_port": ("pyos_udp_last_port", "int"),
     "udp_reply": ("pyos_udp_reply", "int"),
     "resolve": ("pyos_resolve", "str"),
+    "set_dns": ("pyos_set_dns", "int"),
+    "get_dns": ("pyos_get_dns", "str"),
     "ntp_time": ("pyos_ntp_time", "int"),
     "ntp_datetime": ("pyos_ntp_datetime", "str"),
     "dhcp_configure": ("pyos_dhcp_configure", "int"),

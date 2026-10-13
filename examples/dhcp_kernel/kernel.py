@@ -36,6 +36,19 @@ def main():
         pyos.draw("DHCP OK!\n")
 
     pyos.net_status()
+    pyos.draw("DNS (anunciado por el servidor DHCP): " + pyos.get_dns() + "\n")
+
+    pyos.draw("\nresolviendo example.com con ese DNS...\n")
+    ip = pyos.resolve("example.com")
+    if ip == "":
+        pyos.draw("no se pudo resolver\n")
+    else:
+        pyos.draw("example.com -> " + ip + "\n")
+
+    pyos.draw("\nlo mismo otra vez (ahora sale de la cache, sin red)...\n")
+    t0 = pyos.ticks()
+    ip2 = pyos.resolve("example.com")
+    pyos.draw("example.com -> " + ip2 + " (" + str(pyos.ticks() - t0) + " ticks)\n")
 
     pyos.draw("\nprobando ping al gateway con la IP nueva...\n")
     pyos.ping("10.0.2.2")

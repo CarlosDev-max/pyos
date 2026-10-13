@@ -216,7 +216,25 @@ int pyos_udp_reply(const char* text) {
 
 /* --------------------------------- DNS ------------------------------------ */
 
-#define DNS_SERVER_IP { 10, 0, 2, 3 } /* proxy DNS de -netdev user de QEMU */
+/* El servidor DNS ya no está hardcodeado: net.c guarda el actual (por
+ * defecto el proxy de QEMU, 10.0.2.3; dhcp.c lo pisa con el que anuncia
+ * el servidor DHCP real; el usuario puede cambiarlo con pyos.set_dns). */
+extern void net_get_dns(uint8_t out[4]);
+extern void net_set_dns(const uint8_t dns[4]);
+extern int pyos_streq(const char* a, const char* b);
+
+/* Cache chica de nombres ya resueltos (8 entradas, reemplazo en ronda):
+ * resolver el mismo nombre dos veces no vuelve a mandar un paquete DNS.
+ * Se ignora el TTL a propósito: para un kernel de hobby que vive minutos,
+ * es lo bastante bueno -- y set_dns() la vacía igual. */
+#define DNS_CACHE_SIZE 8
+#define DNS_NAME_MAX 64
+static char dns_cache_name[DNS_CACHE_SIZE][DNS_NAME_MAX];
+static char dns_cache_ip[DNS_CACHE_SIZE][16];
+static int  dns_cache_used = 0;
+static int  dns_cache_next = 0;
+
+static void dns_cache_clear(void) { dns_cache_used = 0; dns_cache_next = 0; }
 
 static int dns_encode_name(const char* host, uint8_t* out) {
     int op = 0, i = 0;
@@ -231,14 +249,13 @@ static int dns_encode_name(const char* host, uint8_t* out) {
     return op;
 }
 
-/* Resuelve un nombre a "A.B.C.D" (IPv4) por DNS real. Devuelve "" (string
- * vacío) si no hay respuesta o el nombre no tiene registro A. */
-const char* pyos_resolve(const char* host) {
-    static char result[16];
+/* Consulta DNS real (sin cache). Deja "A.B.C.D" en `result` (16 bytes) o
+ * "" si no hubo respuesta / el nombre no tiene registro A. */
+static void dns_query(const char* host, char* result) {
     result[0] = 0;
-    if (!pyos_net_ready()) return result;
 
-    uint8_t dns_ip[4] = DNS_SERVER_IP;
+    uint8_t dns_ip[4];
+    net_get_dns(dns_ip);
     uint8_t q[300];
     wr16(q + 0, 0x1234);   /* id */
     wr16(q + 2, 0x0100);   /* flags: consulta estándar, recursión deseada */
@@ -253,11 +270,11 @@ const char* pyos_resolve(const char* host) {
     off += 4;
 
     int rlen = udp_request(dns_ip, 53, q, off, 100); /* ~1s de timeout */
-    if (rlen < 12) return result;
+    if (rlen < 12) return;
 
     const uint8_t* r = udp_reply;
     uint16_t ancount = rd16(r + 6);
-    if (ancount == 0) return result;
+    if (ancount == 0) return;
 
     /* saltar la sección de preguntas (mismo formato que armamos arriba) */
     int p = 12;
@@ -286,11 +303,71 @@ const char* pyos_resolve(const char* host) {
                 if (k < 3) result[n++] = '.';
             }
             result[n] = 0;
-            return result;
+            return;
         }
         p += rdlen;
     }
+    return;
+}
+
+
+/* Resuelve un nombre a "A.B.C.D" (IPv4) por DNS real, con cache. Devuelve
+ * "" si no hay respuesta o el nombre no tiene registro A. Si el nombre ya
+ * se resolvió antes (y no cambió el servidor DNS), contesta de la cache
+ * sin mandar nada por la red. */
+const char* pyos_resolve(const char* host) {
+    static char result[16];
+    result[0] = 0;
+    if (!pyos_net_ready()) return result;
+
+    int hlen = 0;
+    while (host[hlen]) hlen++;
+    if (hlen == 0 || hlen > 253) return result; /* largo máximo de un nombre DNS */
+
+    for (int i = 0; i < dns_cache_used; i++) {
+        if (pyos_streq(dns_cache_name[i], host)) {
+            for (int k = 0; k < 16; k++) result[k] = dns_cache_ip[i][k];
+            return result;
+        }
+    }
+
+    dns_query(host, result);
+
+    if (result[0] != 0 && hlen < DNS_NAME_MAX) {
+        int slot = dns_cache_next;
+        for (int k = 0; k <= hlen; k++) dns_cache_name[slot][k] = host[k];
+        for (int k = 0; k < 16; k++) dns_cache_ip[slot][k] = result[k];
+        dns_cache_next = (dns_cache_next + 1) % DNS_CACHE_SIZE;
+        if (dns_cache_used < DNS_CACHE_SIZE) dns_cache_used++;
+    }
     return result;
+}
+
+/* Cambia el servidor DNS a mano (ej: pyos.set_dns("8.8.8.8")). Vacía la
+ * cache: otro servidor puede contestar distinto. */
+int pyos_set_dns(const char* ip_str) {
+    uint8_t dns[4];
+    net_parse_ip(ip_str, dns);
+    if (dns[0] == 0 && dns[1] == 0 && dns[2] == 0 && dns[3] == 0) return 0; /* IP inválida */
+    net_set_dns(dns);
+    dns_cache_clear();
+    return 1;
+}
+
+const char* pyos_get_dns(void) {
+    static char buf[16];
+    uint8_t dns[4];
+    net_get_dns(dns);
+    int p = 0;
+    for (int k = 0; k < 4; k++) {
+        int v = dns[k]; char tmp[4]; int n = 0;
+        if (v == 0) tmp[n++] = '0';
+        while (v > 0) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
+        while (n > 0) buf[p++] = tmp[--n];
+        if (k < 3) buf[p++] = '.';
+    }
+    buf[p] = 0;
+    return buf;
 }
 
 /* --------------------------------- NTP ------------------------------------ */

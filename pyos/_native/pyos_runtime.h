@@ -211,7 +211,9 @@ const char* pyos_udp_recvfrom(int max_ticks);   /* el mas viejo de la cola, "" s
 const char* pyos_udp_last_ip(void);             /* quien mando el ultimo mensaje leido (buffer estatico) */
 int pyos_udp_last_port(void);
 int pyos_udp_reply(const char* text);           /* contesta al remitente del ultimo mensaje leido */
-const char* pyos_resolve(const char* host);     /* DNS real -> "A.B.C.D" o "" (buffer estatico) */
+const char* pyos_resolve(const char* host);     /* DNS real (con cache) -> "A.B.C.D" o "" (buffer estatico) */
+int pyos_set_dns(const char* ip);               /* cambia el servidor DNS (vacia la cache) */
+const char* pyos_get_dns(void);                 /* servidor DNS actual (buffer estatico) */
 int pyos_ntp_time(const char* ip);              /* hora real (Unix epoch) por NTP, 0 si falla */
 const char* pyos_ntp_datetime(const char* ip);  /* "YYYY-MM-DD HH:MM:SS UTC" (buffer estatico) */
 
